@@ -1,0 +1,541 @@
+/*
+ * Copyright (c) 2024. Li Jianbin. All rights reserved. (Modified for Vibrant Orange Theme)
+ * MIT License
+ */
+
+/* =============================================================================
+   全局样式 (Vibrant Orange Theme)
+   ============================================================================= */
+QWidget {
+    color: #202124; /* 深色文字 */
+    background-color: #FFFFFF; /* 白色背景 */
+    selection-background-color: #F57C00; /* 暖橙选中背景 */
+    selection-color: #FFFFFF; /* 选中文字为白色 */
+    font-family: "Microsoft YaHei", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+    font-size: 16px;
+}
+
+/* =============================================================================
+   按钮组件样式
+   ============================================================================= */
+
+QPushButton {
+    min-width: 70px;
+    min-height: 32px;
+    padding: 6px 16px;
+    color: #333333; /* 按钮文字颜色 */
+    /* 浅色渐变背景 */
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #FFFFFF, stop:1 #F0F0F0);
+    border: 1px solid #C0C6CC; /* 浅灰边框 */
+    border-radius: 6px;
+    font-weight: 500;
+    font-size: 14px;
+}
+
+QPushButton:hover {
+    color: #FFFFFF; /* 悬停时文字为白色 */
+    /* 暖橙渐变背景 */
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #FF9800, stop:1 #F57C00);
+    border-color: #FF9800; /* 暖橙边框 */
+}
+
+QPushButton:pressed {
+    color: #FFFFFF;
+    /* 稍深的暖橙渐变 */
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #E65100, stop:1 #D94A00);
+    border-color: #D94A00;
+}
+
+QPushButton:checked {
+    color: #FFFFFF;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #F57C00, stop:1 #E65100);
+    border-color: #E65100;
+}
+
+QPushButton:disabled {
+    color: #A0A0A0; /* 浅灰禁用文字 */
+    background: #F0F0F0; /* 浅灰禁用背景 */
+    border-color: #DDE1E6; /* 更浅的灰边框 */
+}
+
+QPushButton:flat {
+    border: none;
+    background: transparent;
+}
+
+QPushButton:flat:hover {
+    background: rgba(245, 124, 0, 0.1); /* 暖橙透明背景 */
+    border-radius: 4px;
+}
+
+/* =============================================================================
+   状态栏样式
+   ============================================================================= */
+
+QStatusBar {
+    /* 浅灰/浅蓝灰渐变 */
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #F0F4F8, stop:1 #E8EEF3);
+    border-top: 1px solid #DDE1E6; /* 浅灰上边框 */
+    color: #505050; /* 深灰文字 */
+    padding: 4px 8px;
+}
+
+QStatusBar::item {
+    border: none;
+    margin: 0 4px;
+}
+
+QStatusBar QLabel {
+    color: #505050;
+    background: transparent;
+    padding: 2px 8px;
+}
+
+/* =============================================================================
+   工具栏样式
+   ============================================================================= */
+
+QToolBar {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #FFFFFF, stop:1 #F0F4F8);
+    border: none;
+    border-right: 1px solid #DDE1E6; /* 浅灰边框 */
+    spacing: 2px;
+    padding: 4px;
+    min-width: 40px;
+}
+
+QToolBar QWidget {
+    background: transparent;
+}
+
+QToolBar QPushButton {
+    min-width: 30px;
+    min-height: 30px;
+    padding: 4px;
+    margin: 2px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    color: #444444; /* 工具栏按钮图标/文字颜色 */
+    font-size: 22px;
+}
+
+QToolBar QPushButton:hover {
+    background: #FFF3E0; /* 浅橙背景 */
+    border-color: #FFE0B2; /* 浅橙边框 */
+    color: #F57C00; /* 暖橙图标/文字 */
+}
+
+QToolBar QPushButton:pressed {
+    background: #FFE0B2; /* 稍深一点的浅橙 */
+    border-color: #FFCC80;
+}
+
+QToolBar QPushButton:checked {
+    background: #FFF3E0; /* 浅橙背景 */
+    border-color: #F57C00; /* 主暖橙边框 */
+    color: #F57C00; /* 暖橙图标/文字 */
+}
+
+/* =============================================================================
+   文本编辑器样式
+   ============================================================================= */
+
+QPlainTextEdit,
+QTextEdit {
+    background-color: #FFFFFF; /* 白色背景 */
+    color: #202124; /* 深色文字 */
+    border: 1px solid #C0C6CC; /* 浅灰边框 */
+    border-radius: 4px;
+    padding: 8px;
+    selection-background-color: #F57C00;
+    selection-color: #FFFFFF;
+    font-family: "JetBrains Mono", "Consolas", "Monaco", monospace;
+    font-size: 18px;
+    line-height: 1.5;
+}
+
+QPlainTextEdit:focus,
+QTextEdit:focus {
+    border-color: #F57C00; /* 聚焦时暖橙边框 */
+}
+
+QPlainTextEdit:disabled,
+QTextEdit:disabled {
+    background-color: #F0F0F0; /* 浅灰背景 */
+    color: #A0A0A0; /* 浅灰文字 */
+    border-color: #DDE1E6;
+}
+
+/* =============================================================================
+   输入框样式
+   ============================================================================= */
+
+QLineEdit {
+    min-height: 28px;
+    padding: 6px 12px;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #FFFFFF, stop:1 #F5F5F5);
+    color: #202124;
+    border: 1px solid #C0C6CC;
+    border-radius: 6px;
+    font-size: 16px;
+}
+
+QLineEdit:focus {
+    background: #FFFFFF; /* 聚焦时纯白 */
+    border-color: #F57C00; /* 暖橙边框 */
+}
+
+QLineEdit:hover {
+    border-color: #A0A0A0; /* 悬停时稍深灰色边框 */
+}
+
+QLineEdit:disabled {
+    background: #F0F0F0;
+    color: #A0A0A0;
+    border-color: #DDE1E6;
+}
+
+QLineEdit:read-only {
+    background: #F0F4F8; /* 浅蓝灰背景 */
+    color: #606060;
+}
+
+/* =============================================================================
+   标签和标题样式
+   ============================================================================= */
+
+QLabel {
+    color: #333333;
+    background: transparent;
+}
+
+QLabel[class="title"] {
+    font-size: 16px;
+    font-weight: bold;
+    color: #101010; /* 近黑色 */
+}
+
+QLabel[class="subtitle"] {
+    font-size: 16px;
+    font-weight: 500;
+    color: #404040; /* 深灰色 */
+}
+
+QLabel[class="caption"] {
+    font-size: 16px;
+    color: #707070; /* 中灰色 */
+}
+
+/* =============================================================================
+   分组框样式
+   ============================================================================= */
+
+QGroupBox {
+    font-weight: 500;
+    border: 1px solid #DDE1E6; /* 浅灰边框 */
+    border-radius: 8px;
+    margin-top: 12px;
+    padding-top: 8px;
+    color: #333333;
+    background: rgba(240, 244, 248, 0.5); /* 极浅的蓝灰透明背景 */
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 16px;
+    padding: 0 8px;
+    background: #FFFFFF; /* 标题背景与主窗口一致 */
+    color: #F57C00; /* 标题文字使用暖橙色 */
+}
+
+/* =============================================================================
+   分割线样式
+   ============================================================================= */
+
+QSplitter::handle {
+    background: #DDE1E6; /* 浅灰色 */
+}
+
+QSplitter::handle:horizontal {
+    width: 3px;
+    margin: 0 2px;
+}
+
+QSplitter::handle:vertical {
+    height: 3px;
+    margin: 2px 0;
+}
+
+QSplitter::handle:hover {
+    background: #F57C00; /* 悬停时暖橙色 */
+}
+
+/* =============================================================================
+   菜单样式
+   ============================================================================= */
+
+QMenuBar {
+    background: #FFFFFF; /* 白色背景 */
+    color: #333333;
+    border-bottom: 1px solid #DDE1E6; /* 浅灰底边 */
+}
+
+QMenuBar::item {
+    background: transparent;
+    padding: 6px 12px;
+}
+
+QMenuBar::item:selected {
+    background: #FFF3E0; /* 选中时浅橙背景 */
+}
+
+QMenu {
+    background: #FFFFFF; /* 白色背景 */
+    color: #333333;
+    border: 1px solid #C0C6CC; /* 浅灰边框 */
+    border-radius: 6px;
+    padding: 4px 0;
+}
+
+QMenu::item {
+    padding: 8px 20px;
+    margin: 2px 4px;
+    border-radius: 4px;
+}
+
+QMenu::item:selected {
+    background: #F57C00; /* 选中时主暖橙色 */
+    color: #FFFFFF; /* 文字白色 */
+}
+
+QMenu::item:disabled {
+    color: #B0B0B0; /* 浅灰禁用文字 */
+    background-color: transparent;
+}
+
+QMenu::separator {
+    height: 1px;
+    background: #E0E0E0; /* 浅灰分割线 */
+    margin: 4px 8px;
+}
+
+/* =============================================================================
+   滚动条样式
+   ============================================================================= */
+/* 垂直滚动条 */
+QScrollBar:vertical {
+    background-color: #F0F4F8; /* 浅蓝灰背景 */
+    width: 12px;
+    border: none;
+    border-radius: 6px;
+    margin: 0px;
+}
+
+/* 垂直滚动条滑块 */
+QScrollBar::handle:vertical {
+    background-color: #C0C6CC; /* 中灰色滑块 */
+    border-radius: 6px;
+    min-height: 20px;
+    margin: 2px;
+}
+
+/* 垂直滚动条滑块悬停效果 */
+QScrollBar::handle:vertical:hover {
+    background-color: #A0A6AC; /* 稍深灰色 */
+}
+
+/* 垂直滚动条滑块按下效果 */
+QScrollBar::handle:vertical:pressed {
+    background-color: #F57C00; /* 按下时暖橙色 */
+}
+
+/* 垂直滚动条上箭头按钮 */
+QScrollBar::add-line:vertical {
+    border: none;
+    background: none;
+    height: 0px;
+    subcontrol-position: bottom;
+    subcontrol-origin: margin;
+}
+
+/* 垂直滚动条下箭头按钮 */
+QScrollBar::sub-line:vertical {
+    border: none;
+    background: none;
+    height: 0px;
+    subcontrol-position: top;
+    subcontrol-origin: margin;
+}
+
+/* 垂直滚动条上下页区域 */
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+    background: none;
+}
+
+/* 水平滚动条 */
+QScrollBar:horizontal {
+    background-color: #F0F4F8; /* 浅蓝灰背景 */
+    height: 12px;
+    border: none;
+    border-radius: 6px;
+    margin: 0px;
+}
+
+/* 水平滚动条滑块 */
+QScrollBar::handle:horizontal {
+    background-color: #C0C6CC; /* 中灰色滑块 */
+    border-radius: 6px;
+    min-width: 20px;
+    margin: 2px;
+}
+
+/* 水平滚动条滑块悬停效果 */
+QScrollBar::handle:horizontal:hover {
+    background-color: #A0A6AC; /* 稍深灰色 */
+}
+
+/* 水平滚动条滑块按下效果 */
+QScrollBar::handle:horizontal:pressed {
+    background-color: #F57C00; /* 按下时暖橙色 */
+}
+
+/* 水平滚动条左箭头按钮 */
+QScrollBar::add-line:horizontal {
+    border: none;
+    background: none;
+    width: 0px;
+    subcontrol-position: right;
+    subcontrol-origin: margin;
+}
+
+/* 水平滚动条右箭头按钮 */
+QScrollBar::sub-line:horizontal {
+    border: none;
+    background: none;
+    width: 0px;
+    subcontrol-position: left;
+    subcontrol-origin: margin;
+}
+
+/* 水平滚动条左右页区域 */
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+    background: none;
+}
+
+/* 滚动条交汇处的角落 */
+QScrollBar::corner {
+    background-color: #F0F4F8;
+}
+
+
+QTextBrowser {
+    /* 基础背景和文字颜色 */
+    background-color: #FFFFFF;
+    color: #333333;
+    font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+    
+    /* 边框样式 */
+    border: 1px solid #DDE1E6;
+    border-radius: 6px;
+    padding: 12px;
+    
+    /* 选中文本的样式 */
+    selection-background-color: #F57C00;
+    selection-color: #ffffff;
+}
+
+
+QProgressDialog {
+    background-color: #FFFFFF; /* 白色背景 */
+    border: 1px solid #DDE1E6; /* 浅灰边框 */
+    border-radius: 8px;
+    color: #333333; /* 深色文字 */
+    font-family: "Segoe UI", Arial, sans-serif;
+    font-size: 14px;
+}
+
+/* 对话框标题栏 */
+QProgressDialog QLabel {
+    color: #333333;
+    background-color: transparent;
+    font-weight: 500;
+    margin: 8px;
+    padding: 4px;
+}
+
+/* 进度条样式 */
+QProgressDialog QProgressBar {
+    border: 1px solid #C0C6CC;
+    border-radius: 6px;
+    text-align: center;
+    background-color: #E8EEF3; /* 浅蓝灰底色 */
+    color: #333333; /* 进度条上的文字 */
+    font-weight: bold;
+    height: 20px;
+    margin: 8px;
+}
+
+QProgressDialog QProgressBar::chunk {
+    /* 暖橙渐变 */
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                stop:0 #FF9800,
+                                stop:1 #F57C00);
+    border-radius: 5px;
+    margin: 1px;
+}
+
+/* 取消按钮样式 */
+QProgressDialog QPushButton {
+    /* 样式与全局 QPushButton 保持一致 */
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #FFFFFF,
+                                stop:1 #F0F0F0);
+    border: 1px solid #C0C6CC;
+    border-radius: 6px;
+    color: #333333;
+    font-weight: 500;
+    padding: 8px 16px;
+    margin: 8px;
+    min-width: 80px;
+}
+
+QProgressDialog QPushButton:hover {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #FF9800,
+                                stop:1 #F57C00);
+    border-color: #FF9800;
+    color: #FFFFFF;
+}
+
+QProgressDialog QPushButton:pressed {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #E65100,
+                                stop:1 #D94A00);
+    border-color: #D94A00;
+    color: #FFFFFF;
+}
+
+QProgressDialog QPushButton:focus {
+    outline: none;
+    border: 2px solid #F57C00; /* 聚焦时暖橙边框 */
+}
+
+QProgressDialog QPushButton:disabled {
+    background-color: #F0F0F0;
+    border-color: #DDE1E6;
+    color: #A0A0A0;
+}
+
+/* 进度条文本样式 */
+QProgressDialog QProgressBar:chunk {
+    color: #ffffff;
+}
+
+/* 确保 QProgressDialog 边框和背景一致 */
+QProgressDialog {
+    border: 1px solid #C0C6CC;
+    background: #FFFFFF;
+}
