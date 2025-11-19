@@ -93,7 +93,7 @@ VeloCAD/
 - 选中一条边，界面右上角会自动弹出参数设置面板。
 - 输入半径/距离，点击应用。
 
-<img width="1708" height="999" alt="image" src="https://github.com/user-attachments/assets/4e0e4006-b250-4951-89ab-51cf8d399fd2" style="zoom:25%; />
+<img width="1708" height="999" alt="image" src="https://github.com/user-attachments/assets/4e0e4006-b250-4951-89ab-51cf8d399fd2" />
 
 
 
@@ -102,7 +102,7 @@ VeloCAD/
 - 选中两个实体（按住 Ctrl）。
 -  **🔗 (合并)** 或 **✂️ (裁剪)** 或🔍 **(交集)** 进行布尔运算。
 
-<img width="1708" height="999" alt="image" src="https://github.com/user-attachments/assets/d89cb923-8ad0-4522-8014-65e5d4fa53cb" style="zoom:25%; />
+<img width="1708" height="999" alt="image" src="https://github.com/user-attachments/assets/d89cb923-8ad0-4522-8014-65e5d4fa53cb"  />
 
 
 **其他操作:**
@@ -110,5 +110,5 @@ VeloCAD/
 - 选中一个实体。
 - 可点击 **📍 (可视化点**) 或 **🛠️ (精确 HLR)** 或⚡ **(快速 HLR)** 进行操作。
 
-<img width="1708" height="999" alt="image" src="https://github.com/user-attachments/assets/3b697088-3a52-45cb-b044-d6b9f2e503d4" style="zoom:25%; />
+<img width="1708" height="999" alt="image" src="https://github.com/user-attachments/assets/3b697088-3a52-45cb-b044-d6b9f2e503d4"  />
 
