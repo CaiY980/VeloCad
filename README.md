@@ -93,7 +93,6 @@ VeloCAD/
 - 使用鼠标左键作为控制点的位置。
 - 按键盘E键生成相应控制点的曲线。
 
-<img width="1708" height="999" alt="image" src="https://github.com/user-attachments/assets/4e0e4006-b250-4951-89ab-51cf8d399fd2" />
 
 **倒圆角/倒角:**
 
