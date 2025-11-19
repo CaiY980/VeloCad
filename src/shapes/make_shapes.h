@@ -286,34 +286,6 @@ public:
         s_ = make_edge_elips;
     }
 
-    // 双曲线
-    void makeHyperbola(const std::array<double, 3> center, const std::array<double, 3> normal,
-                       const double &radius1, const double &radius2, const double &p1, const double &p2) {
-        if (radius1 <= 0 || radius2 <= 0 || radius1 < radius2) {
-            throw std::invalid_argument("Invalid hyperbola parameters! R1 > R2 > 0");
-        }
-        if (p1 >= p2) {
-            throw std::invalid_argument("Invalid hyperbola parameters! P1 < P2");
-        }
-        const auto pnt = gp_Pnt(center[0], center[1], center[2]);
-        const auto dir = gp_Dir(normal[0], normal[1], normal[2]);
-        gp_Hypr hypr({pnt, dir}, radius1, radius2);
-        BRepBuilderAPI_MakeEdge make_edge_hypr(hypr, p1, p2);
-        s_ = make_edge_hypr;
-    }
-
-    // 抛物线
-    void makeParabola(const std::array<double, 3> center, const std::array<double, 3> normal,
-                      const double &radius, const double &p1, const double &p2) {
-        if (radius <= 0) {
-            throw std::invalid_argument("Invalid parabola parameters! R > 0");
-        }
-        const auto pnt = gp_Pnt(center[0], center[1], center[2]);
-        const auto dir = gp_Dir(normal[0], normal[1], normal[2]);
-        gp_Parab parab({pnt, dir}, radius);
-        BRepBuilderAPI_MakeEdge make_edge_parab(parab, p1, p2);
-        s_ = make_edge_parab;
-    }
 
     // ==================== 面 ====================
     // 从形状构造面

@@ -103,7 +103,21 @@ protected:
     //!覆写鼠标滚轮事件
     void wheelEvent(QWheelEvent *event) override;
 
+    // !覆写键盘事件
+    void keyPressEvent(QKeyEvent* event) override;
+
+
 private:
+    int m_drawLineStep = 0;   // 画线步骤: 0=无, 1=等待起点, 2=等待终点
+    gp_Pnt m_lineStartPoint;  // 存储直线的起始点
+
+    int m_drawMode = 0; // 当前绘制模式: 0=无, 1=Bezier, 2=BSpline
+    std::vector<gp_Pnt> m_clickedPoints; // 存储用户点击的控制点
+    std::vector<Handle(AIS_InteractiveObject)> m_tempAISObjects; // 存储临时显示的控制点对象（绘制完成后清除）
+
+    // 辅助函数：清理临时绘制对象
+    void clearTempObjects();
+    void finishDrawing();
     MakeShapes m_make_shapes;
 
     Shape m_shape;

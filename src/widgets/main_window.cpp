@@ -45,8 +45,7 @@ void MainWindow::createShapeMenus() {
     add1DAction("Spline", 2, "Spline");
     add1DAction("Circle", 3, "Circle");
     add1DAction("Ellipse", 4, "Ellipse");
-    add1DAction("Hyperbola", 5, "Hyperbola");
-    add1DAction("Parabola", 6, "Parabola");
+   
 
     // --- 2D Shapes ---
     menuShape2D = new QMenu("2D Shapes", this);

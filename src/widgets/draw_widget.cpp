@@ -117,10 +117,19 @@ DrawWidget::DrawWidget(QWidget *parent) : QWidget(parent) {
 
     connect(m_filletButton, &QPushButton::clicked, this, &DrawWidget::onApplyFillet);
     connect(m_chamferButton, &QPushButton::clicked, this, &DrawWidget::onApplyChamfer);
+
+    setFocusPolicy(Qt::StrongFocus);
 }
 
 // 根据ID创建1D形状（线、圆、曲线等），计算包围盒并显示
 void DrawWidget::create_shape_1d(int id) {
+
+    // 每次点击按钮时，先重置所有绘制状态
+    m_drawLineStep = 0;
+    m_drawMode = 0;
+    m_clickedPoints.clear();
+    clearTempObjects();
+
     qDebug() << "id 槽函数触发" << id;
     TopoDS_Shape shape;
     m_shape.s_ = shape;
@@ -137,32 +146,19 @@ void DrawWidget::create_shape_1d(int id) {
 
     try {
         if (id == 0) {
-            std::array<double, 3> p1 = {-1.0, 0.0, 0.0};
-            std::array<double, 3> p2 = {1.0, 0.0, 0.0};
-            m_make_shapes.makeLine(p1, p2);
-            shape = m_make_shapes.s_;
-            color = default_colors.at(id);
+            m_drawLineStep = 1;
+            qDebug() << "进入画线模式：请在视图中点击鼠标左键确定起点。";
+            return; // 直接返回，等待鼠标事件
+
+         
         } else if (id == 1) {
-            std::vector<std::array<double, 3>> bezier_poles = {
-                    {-1.5, 0.0, 0.0},
-                    {-0.5, 1.0, 0.0},
-                    {0.5, -1.0, 0.0},
-                    {1.5, 0.0, 0.0}};
-            m_make_shapes.makeBezier(bezier_poles);
-            shape = m_make_shapes.s_;
-            color = default_colors.at(id);
+            m_drawMode = 1;
+            qDebug() << "进入贝塞尔曲线绘制模式：左键添加控制点，右键结束绘制。";
+            return; // 等待鼠标操作
         } else if (id == 2) {
-            std::vector<std::array<double, 3>> spline_poles = {
-                    {-1.2, 0.0, 0.0},
-                    {-0.8, 0.8, 0.0},
-                    {0.8, -0.8, 0.0},
-                    {1.2, 0.0, 0.0}};
-            std::vector<double> spline_knots = {0.0, 1.0};
-            std::vector<int> spline_mults = {4, 4};
-            int spline_degree = 3;
-            m_make_shapes.makeBSpline(spline_poles, spline_knots, spline_mults, spline_degree);
-            shape = m_make_shapes.s_;
-            color = default_colors.at(id);
+            m_drawMode = 2;
+            qDebug() << "进入 B 样条曲线绘制模式：左键添加控制点，右键结束绘制。";
+            return; // 等待鼠标操作
         } else if (id == 3) {
             std::array<double, 3> center = {0.0, 0.0, 0.0};
             std::array<double, 3> normal = {0.0, 0.0, 1.0};
@@ -176,25 +172,6 @@ void DrawWidget::create_shape_1d(int id) {
             double radius1 = 1.5;
             double radius2 = 0.8;
             m_make_shapes.makeEllipse(center, normal, radius1, radius2);
-            shape = m_make_shapes.s_;
-            color = default_colors.at(id);
-        } else if (id == 5) {
-            std::array<double, 3> center = {0.0, 0.0, 0.0};
-            std::array<double, 3> normal = {0.0, 0.0, 1.0};
-            double radius1 = 1.2;
-            double radius2 = 0.6;
-            double p1 = -2.0;
-            double p2 = 2.0;
-            m_make_shapes.makeHyperbola(center, normal, radius1, radius2, p1, p2);
-            shape = m_make_shapes.s_;
-            color = default_colors.at(id);
-        } else if (id == 6) {
-            std::array<double, 3> center = {0.0, 0.0, 0.0};
-            std::array<double, 3> normal = {0.0, 0.0, 1.0};
-            double radius = 1.0;
-            double p1 = -2.0;
-            double p2 = 2.0;
-            m_make_shapes.makeParabola(center, normal, radius, p1, p2);
             shape = m_make_shapes.s_;
             color = default_colors.at(id);
         } else {
@@ -490,18 +467,14 @@ void DrawWidget::onDisplayShape(const Shape &theIObj) {
 void DrawWidget::remove_all() {
     m_viewer->SetRectangularGridValues(0, 0, 1, 1, 0);
     m_viewer->SetRectangularGridGraphicValues(2.01, 2.01, 0);
-#if 1
+
     AIS_ListOfInteractive objects;
     m_context->DisplayedObjects(objects);
     for (const auto &x: objects) {
         if ((x == view_cube) || (x == origin_coord)) { continue; }
         m_context->Remove(x, Standard_True);
     }
-#else
-    m_context->RemoveAll(Standard_True);
-    m_context->Display(view_cube, Standard_True);
-    m_context->Display(origin_coord, Standard_True);
-#endif
+
     update();
 }
 
@@ -524,7 +497,7 @@ void DrawWidget::initialize_context() {
     m_viewer->AddLight(light_direction);
     m_viewer->SetLightOn();
     Quantity_Color background_color;
-    Quantity_Color::ColorFromHex("#F0F8FF", background_color);
+    Quantity_Color::ColorFromHex("#505050", background_color);
     m_view->SetBackgroundColor(background_color);
     m_view->MustBeResized();
 
@@ -610,16 +583,171 @@ void DrawWidget::resizeEvent(QResizeEvent *event) {
     QWidget::resizeEvent(event);
 }
 
+void DrawWidget::clearTempObjects() {
+    if (m_context) {
+        m_context->ClearSelected(Standard_False);
+        m_context->ClearDetected();
+    }
+    for (const auto& obj : m_tempAISObjects) {
+        m_context->Remove(obj, Standard_False); // False 表示不立即刷新屏幕
+    }
+    m_tempAISObjects.clear();
+    m_view->Redraw(); // 统一刷新
+}
+
+void DrawWidget::finishDrawing()
+{
+    if (m_clickedPoints.size() >= 2) {
+        TopoDS_Shape shape;
+
+        if (m_drawMode == 1) { // Bezier
+            std::vector<std::array<double, 3>> poles;
+            for (const auto& pt : m_clickedPoints) {
+                poles.push_back({ pt.X(), pt.Y(), pt.Z() });
+            }
+            try {
+                m_make_shapes.makeBezier(poles);
+                shape = m_make_shapes.s_;
+            }
+            catch (const std::exception& e) {
+                qWarning() << "Bezier 创建失败:" << e.what();
+            }
+        }
+        else if (m_drawMode == 2) { // BSpline
+            int n = m_clickedPoints.size();
+            int degree = 3;
+            if (n <= degree) degree = n - 1;
+            if (degree < 1) degree = 1;
+
+            std::vector<std::array<double, 3>> poles;
+            for (const auto& pt : m_clickedPoints) {
+                poles.push_back({ pt.X(), pt.Y(), pt.Z() });
+            }
+
+            int num_distinct_knots = n - degree + 1;
+            std::vector<double> knots(num_distinct_knots);
+            std::vector<int> mults(num_distinct_knots);
+
+            for (int i = 0; i < num_distinct_knots; ++i) {
+                if (num_distinct_knots > 1)
+                    knots[i] = double(i) / (num_distinct_knots - 1);
+                else
+                    knots[i] = 0.0;
+            }
+
+            for (int i = 0; i < num_distinct_knots; ++i) {
+                if (i == 0 || i == num_distinct_knots - 1)
+                    mults[i] = degree + 1;
+                else
+                    mults[i] = 1;
+            }
+
+            try {
+                m_make_shapes.makeBSpline(poles, knots, mults, degree);
+                shape = m_make_shapes.s_;
+            }
+            catch (const std::exception& e) {
+                qWarning() << "BSpline 创建失败:" << e.what();
+            }
+        }
+
+        if (!shape.IsNull()) {
+            Handle(AIS_Shape) aisShape = new AIS_Shape(shape);
+            aisShape->SetColor(Quantity_NOC_YELLOW);
+            aisShape->SetMaterial(Graphic3d_NameOfMaterial_Stone);
+            m_shape.s_ = shape;
+            m_context->Display(aisShape, Standard_True);
+            qDebug() << "形状绘制完成。";
+        }
+    }
+
+    m_drawMode = 0;
+    m_clickedPoints.clear();
+    clearTempObjects();
+}
+
+
 // 鼠标按下事件：处理对象选择、相机平移初始化和拖拽初始化
 void DrawWidget::mousePressEvent(QMouseEvent *event) {
-
     const qreal ratio = devicePixelRatioF();
+
+    if (m_drawMode != 0 || m_drawLineStep > 0) {
+        Standard_Real vx, vy, vz, vdx, vdy, vdz;
+        m_view->ConvertWithProj(event->pos().x() * ratio, event->pos().y() * ratio, vx, vy, vz, vdx, vdy, vdz);
+        gp_Pnt eyePnt(vx, vy, vz);
+        gp_Dir rayDir(vdx, vdy, vdz);
+        Standard_Real x, y, z;
+        // 检查视线是否平行于地面 (避免除以零)
+        if (Abs(rayDir.Z()) > Precision::Confusion()) {
+            Standard_Real t = -eyePnt.Z() / rayDir.Z();
+            // 计算交点
+            gp_Pnt intersectPnt = eyePnt.Translated(gp_Vec(rayDir).Multiplied(t));
+
+            x = intersectPnt.X();
+            y = intersectPnt.Y();
+            z = 0.0; // 强制锁定在 Z=0 平面，与坐标轴底面一致
+        }
+        else {
+            x = vx; y = vy; z = vz;
+        }
+
+        gp_Pnt clickPnt(x, y, z);
+
+        qDebug() << x <<"  " << y << "  " << z;
+       
+        if (m_drawLineStep > 0) {
+            if (event->button() == Qt::LeftButton) {
+                if (m_drawLineStep == 1) {
+                    m_lineStartPoint = clickPnt;
+                    m_drawLineStep = 2;
+                    qDebug() << "起点已设定，请点击终点。";
+                }
+                else if (m_drawLineStep == 2) {
+                    std::array<double, 3> p1 = { m_lineStartPoint.X(), m_lineStartPoint.Y(), m_lineStartPoint.Z() };
+                    std::array<double, 3> p2 = { x, y, z };
+                    m_make_shapes.makeLine(p1, p2);
+
+                    if (!m_make_shapes.s_.IsNull()) {
+                        Handle(AIS_Shape) aisShape = new AIS_Shape(m_make_shapes.s_);
+                        aisShape->SetColor(Quantity_NOC_RED);
+                        m_context->Display(aisShape, Standard_True);
+                        
+                    }
+                    m_drawLineStep = 0; // 结束直线绘制
+                }
+            }
+
+            return; 
+        }
+        if (m_drawMode != 0) {
+            if (event->button() == Qt::LeftButton) {
+                // 1. 记录点
+                m_clickedPoints.push_back(clickPnt);
+
+                // 2. 显示临时红点
+                TopoDS_Vertex v = BRepBuilderAPI_MakeVertex(clickPnt);
+                Handle(AIS_Shape) aisPoint = new AIS_Shape(v);
+                aisPoint->SetColor(Quantity_NOC_RED);
+                m_context->Display(aisPoint, Standard_True);
+                m_tempAISObjects.push_back(aisPoint);
+
+            }
+            return;
+        }
+    }
+
+
+
+
+
     m_isDraggingObject = false;
     m_isPanningCamera = false;
     m_isRotatingCamera = false;
     m_isRotatingObject = false;
     m_isMenu = false;
-    if (event->button() & Qt::LeftButton) {
+  
+   
+    if ( event->button() & Qt::LeftButton) {
         m_x_max = event->x();
         m_y_max = event->y();
         m_context->MoveTo(event->pos().x() * ratio, event->pos().y() * ratio, m_view, Standard_True);
@@ -676,7 +804,7 @@ void DrawWidget::mousePressEvent(QMouseEvent *event) {
             showFilletUI(false);
         }
         m_view->Update();
-    } else if (event->button() & Qt::RightButton) {
+    } else if ( event->button() & Qt::RightButton) {
 
         m_context->MoveTo(event->pos().x() * ratio, event->pos().y() * ratio, m_view, Standard_True);
         m_isMenu = true;
@@ -737,6 +865,7 @@ void DrawWidget::mouseReleaseEvent(QMouseEvent *event) {
 
 // 鼠标移动事件：处理物体拖拽、相机平移、物体旋转和相机旋转逻辑
 void DrawWidget::mouseMoveEvent(QMouseEvent *event) {
+
     const qreal ratio = devicePixelRatioF();
     if (m_isDraggingObject) {
 
@@ -802,6 +931,16 @@ void DrawWidget::mouseMoveEvent(QMouseEvent *event) {
     else {
         m_context->MoveTo(event->pos().x() * ratio, event->pos().y() * ratio, m_view, Standard_True);
     }
+}
+void DrawWidget::keyPressEvent(QKeyEvent* event)
+{
+    if (event->key() == Qt::Key_E) {
+        qDebug() << "按 E 键结束绘制";
+        finishDrawing();
+        return;
+    }
+
+    QWidget::keyPressEvent(event);
 }
 
 // 滚轮事件：处理视图缩放
