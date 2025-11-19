@@ -509,13 +509,8 @@ void DrawWidget::remove_all() {
 void DrawWidget::initialize_context() {
     Handle(Aspect_DisplayConnection) display_connection = new Aspect_DisplayConnection();
     WId window_handle = (WId) winId();
-#ifdef _WIN32
     Handle(WNT_Window) wind = new WNT_Window((Aspect_Handle) window_handle);
-#elif defined(__APPLE__)
-    Handle(Cocoa_Window) wind = new Cocoa_Window(reinterpret_cast<NSView *>(winId()));
-#else
-    Handle(Xw_Window) wind = new Xw_Window(display_connection, window_handle);
-#endif
+
     m_viewer = new V3d_Viewer(new OpenGl_GraphicDriver(display_connection));
     m_view = m_viewer->CreateView();
     m_view->SetWindow(wind);
