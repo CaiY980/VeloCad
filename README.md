@@ -111,4 +111,3 @@ VeloCAD/
 - 可点击 **📍 (可视化点**) 或 **🛠️ (精确 HLR)** 或⚡ **(快速 HLR)** 进行操作。
 
 <img width="1708" height="999" alt="image" src="https://github.com/user-attachments/assets/3b697088-3a52-45cb-b044-d6b9f2e503d4"  />
-
