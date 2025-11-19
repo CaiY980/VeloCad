@@ -10,7 +10,7 @@
 
 - - 通过工具栏快速创建参数化的 B-Rep 几何体：
     - **⛔ 1D 曲线 (Curves):**
-      - Line (直线), Bezier (贝塞尔曲线), Spline (B样条), Circle (圆), Ellipse (椭圆), Hyperbola (双曲线), Parabola (抛物线)。
+      - Line (直线), Bezier (贝塞尔曲线), Spline (B样条), Circle (圆), Ellipse (椭圆)。
     - **♎ 2D 曲面 (Surfaces):**
       - Plane (平面), Cylindrical Face (圆柱面), Conical Face (圆锥面)。
     - **⚽ 3D 实体 (Solids/Topologies):**
@@ -86,6 +86,14 @@ VeloCAD/
 - **右键单击:** 弹出上下文菜单（执行布尔运算、切换选择模式等）。
 
 ### 快捷功能
+
+**贝塞尔/B样条曲线:**
+
+- 点击贝塞尔曲线或B样条曲线模式后。
+- 使用鼠标左键作为控制点的位置。
+- 按键盘E键生成相应控制点的曲线。
+
+<img width="1708" height="999" alt="image" src="https://github.com/user-attachments/assets/4e0e4006-b250-4951-89ab-51cf8d399fd2" />
 
 **倒圆角/倒角:**
 
