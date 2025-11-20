@@ -92,6 +92,8 @@ VeloCAD/
 - 点击贝塞尔曲线或B样条曲线模式后。
 - 使用鼠标左键作为控制点的位置。
 - 按键盘E键生成相应控制点的曲线。
+  
+<img width="1708" height="999" alt="image" src="https://github.com/user-attachments/assets/e3667434-08ff-4ab7-b1da-da247ad78708" />
 
 
 **倒圆角/倒角:**
