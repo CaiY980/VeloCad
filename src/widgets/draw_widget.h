@@ -108,6 +108,10 @@ protected:
 
 
 private:
+<<<<<<< HEAD
+    Handle(AIS_Shape) m_infoLabel;
+=======
+>>>>>>> 12a923ad290925eaec3e9c35e53cf885f46a4fc7
     int m_drawLineStep = 0;   // 画线步骤: 0=无, 1=等待起点, 2=等待终点
     gp_Pnt m_lineStartPoint;  // 存储直线的起始点
 

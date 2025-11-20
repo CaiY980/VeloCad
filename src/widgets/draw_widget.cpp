@@ -1,4 +1,9 @@
 #include "draw_widget.h"
+
+
+#include <TopoDS_Shape.hxx>   
+#include <BRepGProp.hxx>       
+#include <GProp_GProps.hxx>    
 #include <AIS_InteractiveObject.hxx>
 #include <AIS_ListOfInteractive.hxx>
 #include <AIS_Shape.hxx>
@@ -63,15 +68,10 @@
 #include <gp_Lin.hxx>
 #include <gp_Pln.hxx>
 #include <unordered_map>
-#ifdef _WIN32
 
 #include <WNT_Window.hxx>
 
-#elif defined(__APPLE__)
-#include <Cocoa_Window.hxx>
-#else
-#include <Xw_Window.hxx>
-#endif
+
 
 // 构造函数：初始化窗口设置、UI控件和右键菜单
 DrawWidget::DrawWidget(QWidget *parent) : QWidget(parent) {
@@ -1029,69 +1029,71 @@ void DrawWidget::setSelectionMode(TopAbs_ShapeEnum mode) {
 
 // 处理选中的形状信息，若是边则显示圆角UI，并发送选中信息信号
 void DrawWidget::handleSelectedShape(const TopoDS_Shape &shape) {
-    if (shape.ShapeType() == TopAbs_EDGE) {
-        m_selectedEdge = TopoDS::Edge(shape);
-        Handle(AIS_InteractiveObject) selectedInteractive = m_context->DetectedInteractive();
-        m_selectedAISShape = Handle(AIS_Shape)::DownCast(selectedInteractive);
-        if (!m_selectedEdge.IsNull() && !m_selectedAISShape.IsNull()) {
-            showFilletUI(true);
-        } else {
-            showFilletUI(false);
-        }
-        static const std::unordered_map<int, std::string> type_map = {
-                {GeomAbs_Line, "line"},
-                {GeomAbs_Circle, "circle"},
-                {GeomAbs_Ellipse, "ellipse"},
-                {GeomAbs_Hyperbola, "hyperbola"},
-                {GeomAbs_Parabola, "parabola"},
-                {GeomAbs_BezierCurve, "bezier_curve"},
-                {GeomAbs_BSplineCurve, "bspline_curve"},
-                {GeomAbs_OffsetCurve, "offset_curve"},
-                {GeomAbs_OtherCurve, "other_curve"}};
-        const TopoDS_Edge edge = TopoDS::Edge(shape);
-        BRepAdaptor_Curve C(edge);
-        const std::string type_str = type_map.find(C.GetType()) != type_map.end() ? type_map.at(C.GetType()) : "";
-        QString type = QString::fromStdString(type_str);
-        const gp_Pnt &start_point = BRep_Tool::Pnt(TopExp::FirstVertex(edge));
-        const gp_Pnt &end_point = BRep_Tool::Pnt(TopExp::LastVertex(edge));
-        QJsonObject jsonObj{{
-                {"edge", QJsonObject({
-                                 {"type", type},
-                                 {"first", QJsonObject({
-                                                   {"x", start_point.X()},
-                                                   {"y", start_point.Y()},
-                                                   {"z", start_point.Z()},
-                                           })},
-                                 {"last", QJsonObject({
-                                                  {"x", end_point.X()},
-                                                  {"y", end_point.Y()},
-                                                  {"z", end_point.Z()},
-                                          })},
-                         })},
-        }};
-        emit selectedShapeInfo(QJsonDocument(jsonObj));
-    } else if (shape.ShapeType() == TopAbs_VERTEX) {
-        m_selectedEdge.Nullify();
-        showFilletUI(false);
-        const TopoDS_Vertex vertex = TopoDS::Vertex(shape);
-        gp_Pnt point = BRep_Tool::Pnt(vertex);
-        QJsonObject jsonObj{
-                {"vertex", QJsonObject({{"x", point.X()}, {"y", point.Y()}, {"z", point.Z()}})},
-        };
-        emit selectedShapeInfo(QJsonDocument(jsonObj));
-    } else {
 
-        m_selectedEdge.Nullify();
-        showFilletUI(false);
-        std::stringstream ss;
-        shape.DumpJson(ss);
-        std::string json_str = "{" + ss.str() + "}";
-        QJsonParseError error;
-        QJsonDocument doc = QJsonDocument::fromJson(QByteArray::fromStdString(json_str), &error);
-        if (error.error == QJsonParseError::NoError) {
-            emit selectedShapeInfo(doc);
+    // 1. 生成信息文本
+    std::string infoText;
+    if (shape.ShapeType() == TopAbs_VERTEX) {
+        // 如果是点，显示坐标
+        TopoDS_Vertex v = TopoDS::Vertex(shape);
+        gp_Pnt p = BRep_Tool::Pnt(v);
+        // 保留2位小数
+        char buf[100];
+        snprintf(buf, sizeof(buf), "(%.2f, %.2f, %.2f)", p.X(), p.Y(), p.Z());
+        infoText = std::string(buf);
+    }
+
+    else if (shape.ShapeType() == TopAbs_EDGE) {
+        // 如果是边，显示长度
+        GProp_GProps props;
+        BRepGProp::LinearProperties(shape, props);
+        char buf[100];
+        snprintf(buf, sizeof(buf), "L: %.2f", props.Mass());
+        infoText = std::string(buf);
+    }
+    else {
+        // 其他形状，显示类型
+        infoText = "Shape";
+    }
+
+    // 2. 计算显示位置 (包围盒中心)
+    Bnd_Box bbox;
+    BRepBndLib::Add(shape, bbox);
+    double xmin, ymin, zmin, xmax, ymax, zmax;
+    bbox.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+
+    // 位置偏移一点，避免完全重叠
+    gp_Pnt textPos((xmin + xmax) / 2.0, (ymin + ymax) / 2.0, (zmin + zmax) / 2.0 + 0.2);
+
+    // 3. 生成 3D 文字形状
+    try {
+        // 移除旧标签
+        if (!m_infoLabel.IsNull()) {
+            m_context->Remove(m_infoLabel, Standard_True);
+            m_infoLabel.Nullify();
+        }
+
+        // 调用 make_shapes 的 makeText 函数
+        // 注意：字体大小设为 0.2 (根据您的场景单位可能需要调整)
+        m_make_shapes.makeText(infoText, 0.2);
+        TopoDS_Shape textTopo = m_make_shapes.s_;
+
+        if (!textTopo.IsNull()) {
+            // 4. 将文字移动到目标位置 (默认生成在原点)
+            gp_Trsf transform;
+            transform.SetTranslation(gp_Vec(gp_Pnt(0, 0, 0), textPos));
+            BRepBuilderAPI_Transform xform(textTopo, transform);
+
+            // 5. 显示
+            m_infoLabel = new AIS_Shape(xform.Shape());
+            m_infoLabel->SetColor(Quantity_NOC_YELLOW); // 黄色文字
+            m_infoLabel->SetZLayer(Graphic3d_ZLayerId_Topmost); // 确保显示在最上层
+            m_context->Display(m_infoLabel, Standard_True);
         }
     }
+    catch (const std::exception& e) {
+        qWarning() << "Text generation failed:" << e.what();
+    }
+
 }
 
 // 控制圆角/倒角参数设置面板的显示与隐藏
@@ -1111,6 +1113,13 @@ void DrawWidget::showFilletUI(bool show) {
         m_selectedAISShape.Nullify();
         m_selectedEdge.Nullify();
     }
+
+    if (!m_infoLabel.IsNull()) {
+        m_context->Remove(m_infoLabel, Standard_True);
+        m_infoLabel.Nullify();
+    }
+
+
 }
 
 // 对选中的边应用圆角操作，并更新模型显示
