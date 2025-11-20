@@ -68,11 +68,11 @@ public slots:
     void create_shape_2d(int id);
     void create_shape_3d(int id);
     
-    // 【新】为布尔运算添加三个新的槽函数
+    // 为布尔运算添加三个新的槽函数
     void onFuseShapes();
     void onCutShapes();
     void onCommonShapes();
-    // 【新】为圆角/倒角按钮添加槽函数
+    // 为圆角/倒角按钮添加槽函数
     void onApplyFillet();
     void onApplyChamfer();
 
@@ -124,28 +124,21 @@ private:
     MakeShapes m_make_shapes;
 
     Shape m_shape;
-    // 【新】定义一个枚举来跟踪左键拖拽模式
-    enum LmbDragMode {
-        LmbDrag_None,    // 未拖拽
-        LmbDrag_Pan,     // 正在平移摄像机
-        LmbDrag_Transform// 正在拖拽物体
-    };
-    LmbDragMode m_lmbDragMode{LmbDrag_None};// 【新】添加此成员变量
-    // 【新】UI 元素
+  
+
     QWidget *m_filletWidget;
     QDoubleSpinBox *m_filletSpinBox;
     QDoubleSpinBox *m_chamferSpinBox;
     QPushButton *m_filletButton;
     QPushButton *m_chamferButton;
-    // 【新】存储选中的对象
+    
     Handle(AIS_Shape) m_selectedAISShape;
     TopoDS_Edge m_selectedEdge;
-    // 【新】用于跟踪 3D 拖拽的状态变量
+
     Handle(AIS_InteractiveObject) m_draggedObject;// 正在被拖拽的 AIS 对象
     gp_Pnt m_dragStartPos3d; //拖拽开始时，鼠标在 3D 空间中的点
     gp_Trsf m_dragStartTrsf;// 拖拽开始时，对象的原始变换矩阵
 
-    // 【新】用于跟踪不同的鼠标动作
     bool m_isDraggingObject{false};
     // 正在拖拽物体
     bool m_isPanningCamera{false};
@@ -153,19 +146,19 @@ private:
     bool m_isRotatingCamera{false};
 
     // 正在旋转摄像机
-    bool m_isRotatingObject{false};// 【新】正在(右键)旋转物体
+    bool m_isRotatingObject{false};// 正在(右键)旋转物体
     bool m_isMenu{false}; // 呼出右键菜单栏
-    Handle(AIS_InteractiveObject) m_rotatedObject;// 【新】正在被旋转的 AIS 对象
-    gp_Pnt2d m_dragStartPos2d;                    // 【新】用于旋转的 2D 鼠标起始点
+    Handle(AIS_InteractiveObject) m_rotatedObject;
+    gp_Pnt2d m_dragStartPos2d;                  
 
-    // 【新】辅助函数
+    // 辅助函数
     void showFilletUI(bool show);
     // 创建一个 QMenu 和一个 QActionGroup
     void createContextMenu();
     // Qt 菜单组件
     QMenu *m_contextMenu;
     QActionGroup *m_selectionModeGroup;
-    // 【新】为布尔运算添加 QAction 成员变量
+   
     QAction *m_fuseAction;
     QAction *m_cutAction;
     QAction *m_commonAction;
