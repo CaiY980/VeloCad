@@ -1,20 +1,11 @@
 #include "main_window.h"
 #include <QApplication>
-#include <QCommandLineOption>
-#include <QCommandLineParser>
-
+#include <QFile>
 int main(int argc, char *argv[]) {
     QApplication a(argc, argv);
     QCoreApplication::setApplicationName("VeloCAD");
  
-    //QCommandLineParser parser;
-    //parser.addHelpOption();
-    //parser.addVersionOption();
-    //QCommandLineOption file_option(QStringList() << "f" << "file", "Script file to execute", "file");
-    //parser.addOption(file_option);
-    //QCommandLineOption code_option(QStringList() << "c" << "code", "Script code string to execute", "code");
-    //parser.addOption(code_option);
-    //parser.process(a);
+
     qRegisterMetaType<Shape>("Shape");
   
     MainWindow w;

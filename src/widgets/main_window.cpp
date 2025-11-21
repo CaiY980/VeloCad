@@ -123,6 +123,7 @@ void MainWindow::createMenuBar() {
     actionFuseShapes = new QAction("🔗 合并 (Union)", this);
     actionCutShapes = new QAction("✂️ 裁剪 (Difference)", this);
     actionCommonShapes = new QAction("🔍 交集 (Common)", this);
+    actionMakeCompound = new QAction("📦 组合 (Compound)", this);
     actionVisualizePoints = new QAction("📍 可视化点", this);
     actionHlrPrecise = new QAction("🛠️ 精确 HLR", this);
     actionHlrDiscrete = new QAction("⚡ 快速 HLR", this);
@@ -140,7 +141,9 @@ void MainWindow::createMenuBar() {
     toolsMenu->addSeparator();
     toolsMenu->addAction(actionFillet);
     toolsMenu->addAction(actionChamfer);
-
+    
+    toolsMenu->addAction(actionMakeCompound);
+    
 
 }
 
@@ -197,6 +200,7 @@ void MainWindow::createToolBars() {
     opsToolBar->addSeparator();
     opsToolBar->addAction(actionFillet);
     opsToolBar->addAction(actionChamfer);
+    opsToolBar->addAction(actionMakeCompound);
     addToolBar(Qt::TopToolBarArea, opsToolBar);
 }
 
@@ -223,6 +227,7 @@ void MainWindow::connectActions() {
     connect(actionHlrDiscrete, &QAction::triggered, m_drawWidget, &DrawWidget::onRunDiscreteHLR);
     connect(actionFillet, &QAction::triggered, m_drawWidget, &DrawWidget::onApplyFillet);
     connect(actionChamfer, &QAction::triggered, m_drawWidget, &DrawWidget::onApplyChamfer);
+    connect(actionMakeCompound, &QAction::triggered, m_drawWidget, &DrawWidget::onMakeCompound);
 }
 
 void MainWindow::slot_shape1d_triggered(QAction *action) {

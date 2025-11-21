@@ -1,30 +1,11 @@
 
 #include "shape.h"
-#include <AIS_InteractiveContext.hxx>
-#include <BRepAdaptor_Curve.hxx>
-#include <BRepAlgoAPI_Common.hxx>
-#include <BRepAlgoAPI_Cut.hxx>
-#include <BRepAlgoAPI_Fuse.hxx>
-#include <BRepBuilderAPI_MakeWire.hxx>
-#include <BRepBuilderAPI_Transform.hxx>
-#include <BRepFilletAPI_MakeChamfer.hxx>
-#include <BRepFilletAPI_MakeFillet.hxx>
-#include <BRepGProp.hxx>
-#include <BRepMesh_IncrementalMesh.hxx>
-#include <BRepOffsetAPI_MakePipe.hxx>
-#include <BRepPrimAPI_MakePrism.hxx>
-#include <BRepPrimAPI_MakeRevol.hxx>
-#include <BRep_Tool.hxx>
-#include <GProp_GProps.hxx>
-#include <IGESControl_Writer.hxx>
-#include <STEPControl_Reader.hxx>
-#include <STEPControl_Writer.hxx>
-#include <StlAPI.hxx>
+#include <BRep_Builder.hxx>
 #include <StlAPI_Reader.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
 #include <gp_Quaternion.hxx>
-#include <BRepMesh_IncrementalMesh.hxx>
+#include <STEPControl_Writer.hxx>
 #include <STEPCAFControl_Reader.hxx>
 #include <TDocStd_Application.hxx>
 #include <BinXCAFDrivers.hxx>
@@ -177,9 +158,6 @@ Shape &Shape::export_xde(const std::string &_filename) {
 
 
 
-std::array<double, 4> Shape::rgba() const {
-    return {color_.Red(), color_.Green(), color_.Blue(), (1.0 - transparency_)};
-}
 
 Shape Shape::make_compound(const std::vector<Shape> &_shapes) {
     if (_shapes.empty()) { return Shape(); }

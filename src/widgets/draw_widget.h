@@ -18,11 +18,11 @@
 #include <QMenu>
 #include <QWidget>
 #include <V3d_Light.hxx>
-#include <gp_Trsf.hxx>
+
 #include <QDoubleSpinBox>
 #include <QPushButton>   
 #include <TopoDS_Edge.hxx>   
-#include <gp_Trsf.hxx> 
+
 #include <gp_Pnt2d.hxx>
 class DrawWidget : public QWidget {
     Q_OBJECT
@@ -58,6 +58,7 @@ signals:
     void shapeMoved(const gp_Trsf &newTransform);
     void selectObject(int);
 public slots:
+    void onMakeCompound();
     void onRunPreciseHLR(); 
     void onRunDiscreteHLR();
     void onVisualizeInternalPoints();

@@ -17,7 +17,6 @@
 #include <BRepPrimAPI_MakeWedge.hxx>
 #include <Font_BRepTextBuilder.hxx>
 #include <Geom_Line.hxx>
-#include <TopoDS.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <Geom_BSplineCurve.hxx>
 #include <Geom_BezierCurve.hxx>
@@ -26,7 +25,6 @@
 #include <gp_Hypr.hxx>
 #include <gp_Parab.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
-#include <BRepBuilderAPI_MakeWire.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Wire.hxx>
 #include <gp_Cone.hxx>

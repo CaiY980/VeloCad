@@ -4,7 +4,7 @@
 #include <TDocStd_Document.hxx>
 #include <AIS_Shape.hxx>
 #include <TopoDS_Edge.hxx>
-#include <BRepBuilderAPI_Transform.hxx> 
+
 class TopoShape : public TopoDS_Shape {
 public:
 

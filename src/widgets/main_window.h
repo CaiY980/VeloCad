@@ -4,17 +4,15 @@
 #include <QAction>
 #include <QActionGroup>
 #include <QApplication>
-#include <QDebug>
-#include <QDockWidget>
-#include <QFileDialog>
-#include <QLabel>
+
+
 #include <QMainWindow>
 #include <QMenu>
 #include <QMenuBar>
-#include <QMessageBox>
-#include <QStatusBar>
-#include <QTabWidget>
 #include <QToolBar>
+#include <QStatusBar>
+
+
 #include <QToolButton>
 
 
@@ -71,6 +69,7 @@ private:
     QAction *actionHlrDiscrete;
     QAction *actionFillet;
     QAction *actionChamfer;
+    QAction* actionMakeCompound;
 private slots:
  
 

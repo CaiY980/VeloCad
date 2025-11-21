@@ -26,14 +26,14 @@
 #include <QMouseEvent>
 #include <StdSelect_BRepOwner.hxx>
 #include <TopExp.hxx>
-#include <TopoDS.hxx>
+
 #include <V3d_View.hxx>
-#include <gp_Ax1.hxx>
+
 #include <gp_Dir.hxx>
 #include <gp_Pnt2d.hxx>
 #include <gp_Trsf.hxx>
 
-#include <BRepBndLib.hxx>
+
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
@@ -53,10 +53,8 @@
 #include <HLRBRep_PolyHLRToShape.hxx>
 #include <NCollection_DataMap.hxx>
 #include <Poly_CoherentTriangulation.hxx>
-#include <QDoubleSpinBox>
 #include <QGridLayout>
 #include <QLabel>
-#include <QPushButton>
 #include <ShapeAnalysis_FreeBounds.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
 #include <TopExp_Explorer.hxx>
@@ -1772,6 +1770,93 @@ void DrawWidget::onRunDiscreteHLR() {
         qWarning("离散 HLR (DHLR) 未返回结果。");
     }
 }
+
+void DrawWidget::onMakeCompound() {
+    // 1. 检查选中数量
+    if (m_context->NbSelected() < 2) {
+        qWarning() << "MakeCompound: Please select at least 2 objects.";
+        return;
+    }
+
+    // 2. 收集选中物体
+    std::vector<Shape> shapesToCompound;
+    AIS_ListOfInteractive selectedList; // 用于后续删除
+    m_context->InitSelected();
+
+    while (m_context->MoreSelected()) {
+        Handle(AIS_InteractiveObject) obj = m_context->SelectedInteractive();
+        selectedList.Append(obj);
+
+        Handle(AIS_Shape) aisShape = Handle(AIS_Shape)::DownCast(obj);
+        if (!aisShape.IsNull()) {
+            // 【关键】获取变换后的几何体
+            // 如果物体被移动或旋转过，直接取 aisShape->Shape() 得到的是原始位置的几何
+            // 必须结合 Transformation() 进行变换
+            TopoDS_Shape rawShape = aisShape->Shape();
+            gp_Trsf trsf = aisShape->Transformation();
+
+            // 应用变换
+            BRepBuilderAPI_Transform transformer(rawShape, trsf, Standard_True);
+            TopoDS_Shape transformedShape = transformer.Shape();
+
+            // 封装到 Shape 对象
+            Shape s;
+            s.s_ = transformedShape;
+
+            // 尝试保留颜色 (取第一个物体的颜色作为复合体的参考，或保留各自颜色结构)
+            Quantity_Color col;
+            aisShape->Color(col);
+            s.color_ = col;
+
+            shapesToCompound.push_back(s);
+        }
+        m_context->NextSelected();
+    }
+
+    if (shapesToCompound.empty()) return;
+
+    try {
+        // 3. 调用几何算法生成 Compound
+        // 假设 m_make_shapes 继承自 Shape，可以直接调用 make_compound
+        Shape compoundResult = m_make_shapes.make_compound(shapesToCompound);
+
+        if (compoundResult.s_.IsNull()) {
+            qWarning() << "MakeCompound: Result is null.";
+            return;
+        }
+
+        // 4. 移除旧物体
+        for (AIS_ListOfInteractive::Iterator it(selectedList); it.More(); it.Next()) {
+            m_context->Remove(it.Value(), Standard_False);
+        }
+
+        // 5. 显示新物体
+        Handle(AIS_Shape) newAis = new AIS_Shape(compoundResult.s_);
+
+        // 设置颜色 (使用默认或第一个物体的颜色)
+        if (!shapesToCompound.empty()) {
+            newAis->SetColor(shapesToCompound[0].color_);
+        }
+        else {
+            newAis->SetColor(Quantity_NOC_YELLOW);
+        }
+
+        newAis->SetMaterial(Graphic3d_NameOfMaterial_Stone);
+
+        // 更新 m_shape 记录 (用于导出等)
+        m_shape = compoundResult;
+
+        m_context->Display(newAis, Standard_True);
+        m_context->SetCurrentObject(newAis, Standard_True); // 选中新生成的物体
+
+        qDebug() << "Compound created successfully from" << shapesToCompound.size() << "shapes.";
+
+    }
+    catch (const std::exception& e) {
+        qCritical() << "MakeCompound Failed:" << e.what();
+    }
+}
+
 
 // 打开文件对话框读取STL文件
 void DrawWidget::readStl() {
