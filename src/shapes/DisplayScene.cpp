@@ -1,299 +1,191 @@
-//-----------------------------------------------------------------------------
-// Created on: 18 July 2021
-//-----------------------------------------------------------------------------
-// Copyright (c) 2021, Sergey Slyadnev (sergey.slyadnev@gmail.com)
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-//    * Redistributions of source code must retain the above copyright
-//      notice, this list of conditions and the following disclaimer.
-//    * Redistributions in binary form must reproduce the above copyright
-//      notice, this list of conditions and the following disclaimer in the
-//      documentation and/or other materials provided with the distribution.
-//    * Neither the name of the copyright holder(s) nor the
-//      names of all contributors may be used to endorse or promote products
-//      derived from this software without specific prior written permission.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
-// ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-// WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-// DISCLAIMED. IN NO EVENT SHALL THE AUTHORS OR CONTRIBUTORS BE LIABLE FOR ANY
-// DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-// (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-// LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-// ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-// SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-//-----------------------------------------------------------------------------
-// Own include
 #include "DisplayScene.h"
 
-// OpenCascade includes
+// OCCT Includes
 #include <AIS_ConnectedInteractive.hxx>
-#include <AIS_InteractiveContext.hxx>
-#include <AIS_PointCloud.hxx>
-#include <Prs3d_ShadingAspect.hxx>
+#include <AIS_ColoredShape.hxx>
 #include <TDF_ChildIterator.hxx>
-#include <TDF_Label.hxx>
 #include <TDF_Tool.hxx>
-#include <TDocStd_Document.hxx>
 #include <TopoDS_Iterator.hxx>
-#include <XCAFDoc_ColorTool.hxx>
 #include <XCAFDoc_DocumentTool.hxx>
 #include <XCAFDoc_ShapeTool.hxx>
+#include <XCAFDoc_ColorTool.hxx>
 #include <XCAFPrs_AISObject.hxx>
-#include <XCAFPrs_Style.hxx>
-
-#undef COUT_DEBUG
 
 //-----------------------------------------------------------------------------
-
+// 匿名命名空间，放置辅助函数
+//-----------------------------------------------------------------------------
 namespace
 {
-  bool IsEmptyShape(const TopoDS_Shape& shape)
-  {
-    if ( shape.IsNull() )
-      return true;
+    bool IsEmptyShape(const TopoDS_Shape& shape)
+    {
+        if (shape.IsNull()) return true;
+        if (shape.ShapeType() >= TopAbs_FACE) return false;
 
-    if ( shape.ShapeType() >= TopAbs_FACE )
-      return false;
-
-    int numSubShapes = 0;
-    for ( TopoDS_Iterator it(shape); it.More(); it.Next() )
-      numSubShapes++;
-
-    return numSubShapes == 0;
-  }
+        TopoDS_Iterator it(shape);
+        return !it.More();
+    }
 }
 
 //-----------------------------------------------------------------------------
 
 bool DisplayScene::Execute()
 {
-  if ( m_doc.IsNull() )
+    if (m_doc.IsNull() || m_ctx.IsNull()) return false;
+
+    Handle(XCAFDoc_ShapeTool) shapeTool = XCAFDoc_DocumentTool::ShapeTool(m_doc->Main());
+    TDF_LabelSequence roots;
+    shapeTool->GetFreeShapes(roots);
+
+    // 默认样式
+    XCAFPrs_Style defaultStyle;
+    defaultStyle.SetColorSurf(Quantity_NOC_GREEN);
+    defaultStyle.SetColorCurv(Quantity_Color(0.0, 0.4, 0.0, Quantity_TOC_sRGB));
+
+    LabelPrsMap mapOfOriginals;
+
+    for (TDF_LabelSequence::Iterator lit(roots); lit.More(); lit.Next())
+    {
+        const TDF_Label& label = lit.Value();
+        TopLoc_Location parentLoc = shapeTool->GetLocation(label);
+
+        try
+        {
+            this->processLabel(label, parentLoc, defaultStyle, "", mapOfOriginals);
+        }
+        catch (const Standard_Failure& e)
+        {
+            std::cout << "Error displaying label: " << e.GetMessageString() << std::endl;
+        }
+    }
+
+    // 刷新 Viewer
+    m_ctx->UpdateCurrentViewer();
     return true;
-
-  // Clear the viewer.
-  //m_ctx->RemoveAll(false);
-
-  // Get XDE tools.
-  Handle(XCAFDoc_ShapeTool)
-    ShapeTool = XCAFDoc_DocumentTool::ShapeTool( m_doc->Main() );
-
-  // Get root shapes to visualize.
-  TDF_LabelSequence roots;
-  ShapeTool->GetFreeShapes(roots);
-
-  // Prepare default style.
-  XCAFPrs_Style defaultStyle;
-  defaultStyle.SetColorSurf(Quantity_NOC_GREEN);
-  defaultStyle.SetColorCurv(Quantity_Color(0.0, 0.4, 0.0, Quantity_TOC_sRGB));
-
-  // Visualize objects recursively.
-  LabelPrsMap mapOfOriginals;
-  //
-  for ( TDF_LabelSequence::Iterator lit(roots); lit.More(); lit.Next() )
-  {
-    const TDF_Label& L         = lit.Value();
-    TopLoc_Location  parentLoc = ShapeTool->GetLocation(L);
-
-    try
-    {
-      this->displayItem(L, parentLoc, defaultStyle, "", mapOfOriginals);
-    }
-    catch (...)
-    {
-      TCollection_AsciiString entry;
-      TDF_Tool::Entry(L, entry);
-
-#if defined COUT_DEBUG
-      std::cout << "DisplayScene::Execute(): cannot display item '"
-                << entry.ToCString()
-                << "'"
-                << std::endl;
-#endif
-    }
-  }
-
-  return true;
 }
 
+//-----------------------------------------------------------------------------
+// 核心递归逻辑
+//-----------------------------------------------------------------------------
+void DisplayScene::processLabel(const TDF_Label& label,
+    const TopLoc_Location& parentTrsf,
+    const XCAFPrs_Style& parentStyle,
+    const TCollection_AsciiString& parentId,
+    LabelPrsMap& mapOfOriginals)
+{
+    Handle(XCAFDoc_ShapeTool) shapeTool = XCAFDoc_DocumentTool::ShapeTool(m_doc->Main());
 
+    // 1. 处理引用 (Reference)
+    TDF_Label refLabel = label;
+    if (shapeTool->IsReference(label))
+    {
+        shapeTool->GetReferredShape(label, refLabel);
+    }
 
+    // 2. 构建 ID (Path)
+    TCollection_AsciiString itemId;
+    TDF_Tool::Entry(label, itemId);
+    if (!parentId.IsEmpty())
+    {
+        itemId.Prepend("/");
+        itemId.Prepend(parentId);
+    }
+
+    // 3. 如果不是装配体（是 Component/Solid），进行显示
+    if (!shapeTool->IsAssembly(refLabel))
+    {
+        displayComponent(refLabel, parentTrsf, itemId, mapOfOriginals);
+        return; // 叶子节点，结束递归
+    }
+
+    // 4. 如果是装配体，解析样式并递归
+    XCAFPrs_Style currentStyle = resolveStyle(refLabel, parentStyle);
+
+    for (TDF_ChildIterator childIt(refLabel); childIt.More(); childIt.Next())
+    {
+        TDF_Label childLabel = childIt.Value();
+        if (!childLabel.IsNull() && (childLabel.HasAttribute() || childLabel.HasChild()))
+        {
+            // 累加变换矩阵
+            TopLoc_Location trsf = parentTrsf * shapeTool->GetLocation(childLabel);
+            this->processLabel(childLabel, trsf, currentStyle, itemId, mapOfOriginals);
+        }
+    }
+}
 
 //-----------------------------------------------------------------------------
-void DisplayScene::displayItem(const TDF_Label&               label,
-                               const TopLoc_Location&         parentTrsf,
-                               const XCAFPrs_Style&           parentStyle,
-                               const TCollection_AsciiString& parentId,
-                               LabelPrsMap&                   mapOfOriginals)
+// 显示逻辑
+//-----------------------------------------------------------------------------
+void DisplayScene::displayComponent(const TDF_Label& refLabel,
+    const TopLoc_Location& location,
+    const TCollection_AsciiString& itemId,
+    LabelPrsMap& mapOfOriginals)
 {
-  // Get XDE tools.
-  Handle(XCAFDoc_ShapeTool) ShapeTool = XCAFDoc_DocumentTool::ShapeTool( m_doc->Main() );
-  Handle(XCAFDoc_ColorTool) ColorTool = XCAFDoc_DocumentTool::ColorTool( m_doc->Main() );
+    Handle(XCAFDoc_ShapeTool) shapeTool = XCAFDoc_DocumentTool::ShapeTool(m_doc->Main());
 
-  // Get referred label for instances or root refs.
-  TDF_Label refLabel = label;
-  //
-  if ( ShapeTool->IsReference(label) )
-    ShapeTool->GetReferredShape(label, refLabel);
+    // 获取几何
+    TopoDS_Shape shape = shapeTool->GetShape(refLabel);
+    if (::IsEmptyShape(shape)) return;
 
-  // Build path ID which is the unique identifier of the assembly item
-  // in the hierarchical assembly graph.
-  TCollection_AsciiString itemId;
-  TDF_Tool::Entry(label, itemId);
-  //
-  if ( !parentId.IsEmpty() )
-  {
-    itemId.Prepend("/");
-    itemId.Prepend(parentId);
-  }
+    m_shape = shape;
 
-  // If the label contains a part and not an assembly, we can create the
-  // corresponding AIS object. All part instances will reference that object.
-   if ( !ShapeTool->IsAssembly(refLabel) )
-  {
-    Handle(AIS_ConnectedInteractive)                   brepConnected;
-    NCollection_List<Handle(AIS_ConnectedInteractive)> createdObjects;
+    // 检查缓存
+    AisList* aisListPtr = mapOfOriginals.ChangeSeek(refLabel);
 
-    Handle(TCollection_HAsciiString) hItemId = new TCollection_HAsciiString(itemId);
-
-    // Use AIS_ConnectedInteractiove to refer to the same AIS objects instead of
-    // creating copies. That's the typical instancing thing you'd expect to have
-    // in any good enough 3D graphics API.
-    NCollection_List<Handle(AIS_InteractiveObject)>*
-      aisListPtr = mapOfOriginals.ChangeSeek(refLabel);
-
-    if ( aisListPtr == NULL )
+    if (aisListPtr == nullptr)
     {
-      NCollection_List<Handle(AIS_InteractiveObject)> itemRepresList;
+        // 创建原始对象，XCAFPrs_AISObject 会自动处理几何和部分属性
+        Handle(XCAFPrs_AISObject) originalPrs = new XCAFPrs_AISObject(refLabel);
 
-      //* set BRep representation
-      TopoDS_Shape shape = ShapeTool->GetShape(refLabel);
-      m_shape = shape;
-      if ( !::IsEmptyShape(shape) )
-      {
-        /* Construct the original AIS object and create a connected interactive
-         * object right away. The thing is that we never show the original objects
-         * themselves. We always have reference objects in our scene.
-         */
-
-        // Get label ID.
-        TCollection_AsciiString refEntry;
-        TDF_Tool::Entry(refLabel, refEntry);
-
-#if defined COUT_DEBUG
-        std::cout << "DisplayScene::Execute(): creating original AIS object for item '"
-                  << refEntry.ToCString()
-                  << "'"
-                  << std::endl;
-#endif
-
-        // Original.
-        Handle(AIS_ColoredShape) brepPrs = new XCAFPrs_AISObject(refLabel);
-
-#if defined COUT_DEBUG
-        std::cout << "DisplayScene::Execute(): creating AIS object connected to the item '"
-                  << refEntry.ToCString()
-                  << "'"
-                  << std::endl;
-#endif
-
-        // Connected.
-        brepConnected = new AIS_ConnectedInteractive();
-        brepConnected->Connect(brepPrs);
-
-        itemRepresList.Append(brepPrs);
-      }
-
-      aisListPtr = mapOfOriginals.Bound( refLabel, itemRepresList );
+        AisList newList;
+        newList.Append(originalPrs);
+        aisListPtr = mapOfOriginals.Bound(refLabel, newList);
     }
-    else
+
+    // 创建 Connected Interactive 引用缓存的原始对象
+    for (AisList::Iterator it(*aisListPtr); it.More(); it.Next())
     {
-      /* If here, we are not going to create an original AIS object, but
-       * we still have to construct the connected interactive object and
-       * make a link to the already existing original AIS shape.
-       */
+        const Handle(AIS_InteractiveObject)& original = it.Value();
+        Handle(AIS_ConnectedInteractive) connectedPrs = new AIS_ConnectedInteractive();
 
-      NCollection_List<Handle(AIS_InteractiveObject)>::Iterator it(*aisListPtr);
+        connectedPrs->Connect(original);
+        connectedPrs->SetLocalTransformation(location.Transformation());
+        connectedPrs->SetDisplayMode(AIS_Shaded);
 
-      for ( ; it.More(); it.Next() )
-      {
-        const Handle(AIS_InteractiveObject)& aisOriginal = it.Value();
-
-        if ( aisOriginal->IsKind( STANDARD_TYPE(XCAFPrs_AISObject) ) )
+        try
         {
-          Handle(XCAFPrs_AISObject) brepPrs = Handle(XCAFPrs_AISObject)::DownCast( it.Value() );
-
-          const TDF_Label& originalLab = brepPrs->GetLabel();
-          TCollection_AsciiString originalEntry;
-          TDF_Tool::Entry(originalLab, originalEntry);
-
-#if defined COUT_DEBUG
-          std::cout << "DisplayScene::Execute(): creating AIS object connected to the item '"
-                    << originalEntry.ToCString()
-                    << "'"
-                    << std::endl;
-#endif
-
-          // Connected.
-          brepConnected = new AIS_ConnectedInteractive();
-          brepConnected->Connect(brepPrs);
+            // false = 不立即重绘，提高加载速度
+            m_ctx->Display(connectedPrs, false);
         }
-      }
+        catch (...)
+        {
+            m_ctx->Remove(connectedPrs, false);
+        }
     }
+}
 
-    if ( !brepConnected.IsNull() )
+//-----------------------------------------------------------------------------
+// 样式逻辑
+//-----------------------------------------------------------------------------
+XCAFPrs_Style DisplayScene::resolveStyle(const TDF_Label& label,
+    const XCAFPrs_Style& parentStyle)
+{
+    Handle(XCAFDoc_ColorTool) colorTool = XCAFDoc_DocumentTool::ColorTool(m_doc->Main());
+    XCAFPrs_Style style = parentStyle;
+    Quantity_ColorRGBA color;
+
+    if (colorTool->GetColor(label, XCAFDoc_ColorGen, color))
     {
-      brepConnected->SetDisplayMode         ( AIS_Shaded );
-      brepConnected->SetLocalTransformation ( parentTrsf.Transformation() );
-      try
-      {
-        m_ctx->Display(brepConnected, false);
-        createdObjects.Append(brepConnected);
-      }
-      catch (...)
-      {
-        std::cout << "DisplayScene::Execute(): invalid shape for item '"
-                  << itemId.ToCString()
-                  << "'"
-                  << std::endl;
-
-        m_ctx->Remove(brepConnected, Standard_False);
-        mapOfOriginals.UnBind(refLabel);
-      }
+        style.SetColorCurv(color.GetRGB());
+        style.SetColorSurf(color);
     }
-
-    return; // We're done
-  }
-
-  XCAFPrs_Style defStyle = parentStyle;
-  Quantity_ColorRGBA color;
-  if ( ColorTool->GetColor(refLabel, XCAFDoc_ColorGen, color) )
-  {
-    defStyle.SetColorCurv( color.GetRGB() );
-    defStyle.SetColorSurf( color );
-  }
-  if ( ColorTool->GetColor(refLabel, XCAFDoc_ColorSurf, color) )
-  {
-    defStyle.SetColorSurf( color );
-  }
-  if ( ColorTool->GetColor(refLabel, XCAFDoc_ColorCurv, color) )
-  {
-    defStyle.SetColorCurv( color.GetRGB() );
-  }
-
-  // In case of an assembly, move on to the nested component.
-  for ( TDF_ChildIterator childIt(refLabel); childIt.More(); childIt.Next() )
-  {
-    TDF_Label childLabel = childIt.Value();
-
-    if ( !childLabel.IsNull() && ( childLabel.HasAttribute() || childLabel.HasChild() ) )
+    if (colorTool->GetColor(label, XCAFDoc_ColorSurf, color))
     {
-      TopLoc_Location trsf = parentTrsf * ShapeTool->GetLocation(childLabel);
-      this->displayItem(childLabel, trsf, defStyle, itemId, mapOfOriginals);
+        style.SetColorSurf(color);
     }
-  }
+    if (colorTool->GetColor(label, XCAFDoc_ColorCurv, color))
+    {
+        style.SetColorCurv(color.GetRGB());
+    }
+
+    return style;
 }

@@ -1,6 +1,8 @@
 #include "draw_widget.h"
 
-
+#include <AIS_PointCloud.hxx>
+#include <Graphic3d_ArrayOfPoints.hxx>
+#include <omp.h> 
 #include <TopoDS_Shape.hxx>   
 #include <BRepGProp.hxx>       
 #include <GProp_GProps.hxx>    
@@ -145,17 +147,17 @@ void DrawWidget::create_shape_1d(int id) {
     try {
         if (id == 0) {
             m_drawLineStep = 1;
-            qDebug() << "进入画线模式：请在视图中点击鼠标左键确定起点。";
+            // qDebug() << "进入画线模式：请在视图中点击鼠标左键确定起点。";
             return; // 直接返回，等待鼠标事件
 
          
         } else if (id == 1) {
             m_drawMode = 1;
-            qDebug() << "进入贝塞尔曲线绘制模式：左键添加控制点，右键结束绘制。";
+            // qDebug() << "进入贝塞尔曲线绘制模式：左键添加控制点，右键结束绘制。";
             return; // 等待鼠标操作
         } else if (id == 2) {
             m_drawMode = 2;
-            qDebug() << "进入 B 样条曲线绘制模式：左键添加控制点，右键结束绘制。";
+            // qDebug() << "进入 B 样条曲线绘制模式：左键添加控制点，右键结束绘制。";
             return; // 等待鼠标操作
         } else if (id == 3) {
             std::array<double, 3> center = {0.0, 0.0, 0.0};
@@ -1484,58 +1486,81 @@ void DrawWidget::onCommonShapes() {
     m_context->SetCurrentObject(newAisShape, Standard_True);
 }
 
-// 辅助函数：使用扫描线算法计算实体内部的点
-std::vector<gp_XYZ> GetPointsInsideSolid(
-        const TopoDS_Shape &solidShape,
-        const int density = 20) {
-    std::vector<gp_XYZ> innerPoints;
 
-    if (solidShape.IsNull() || density <= 0) {
-        return innerPoints;
-    }
+std::vector<gp_XYZ> GetPointsInsideSolid(
+    const TopoDS_Shape& solidShape,
+    const int density = 20) 
+{
+    std::vector<gp_XYZ> innerPoints;
+    if (solidShape.IsNull() || density <= 0) return innerPoints;
 
     Bnd_Box aabb;
     BRepBndLib::Add(solidShape, aabb, true);
-
-    if (aabb.IsVoid()) {
-        return innerPoints;
-    }
+    if (aabb.IsVoid()) return innerPoints;
 
     gp_XYZ Pmin = aabb.CornerMin().XYZ();
     gp_XYZ Pmax = aabb.CornerMax().XYZ();
     gp_XYZ D = Pmax - Pmin;
 
+    // 防止极小包围盒导致除零
     if (D.X() < Precision::Confusion()) D.SetX(1.0);
     if (D.Y() < Precision::Confusion()) D.SetY(1.0);
     if (D.Z() < Precision::Confusion()) D.SetZ(1.0);
 
-    double dims[3] = {D.X(), D.Y(), D.Z()};
+    // 步长计算逻辑优化建议：防止某一维过细导致点数爆炸
+    // 这里保持你的逻辑，但建议生产环境增加步长下限
+    double dims[3] = { D.X(), D.Y(), D.Z() };
     const double mind = Min(dims[0], Min(dims[1], dims[2]));
     const double d = mind / density;
 
-    if (d < Precision::Confusion()) {
-        return innerPoints;
-    }
+    if (d < Precision::Confusion()) return innerPoints;
 
     const int nslice[3] = {
-            static_cast<int>(Round(dims[0] / d)) + 1,
-            static_cast<int>(Round(dims[1] / d)) + 1,
-            static_cast<int>(Round(dims[2] / d)) + 1};
+            static_cast<int>(ceil(dims[0] / d)),
+            static_cast<int>(ceil(dims[1] / d)),
+            static_cast<int>(ceil(dims[2] / d)) };
 
-    BRepClass3d_SolidClassifier classifier(solidShape);
-    const double tolerance = Precision::Confusion();
+    // 预估总点数用于 reserve，减少 vector 扩容开销
+    long long estimatedCount = (long long)nslice[0] * nslice[1] * nslice[2];
+    // 安全检查：如果点数过大（如超过100万），可能需要报警或截断
+    if (estimatedCount > 1000000) {
+        qWarning() << "Estimated points too high:" << estimatedCount;
+        // 可以在此强制调整 d
+    }
 
-    for (int i = 0; i <= nslice[0]; ++i) {
-        for (int j = 0; j <= nslice[1]; ++j) {
-            for (int k = 0; k <= nslice[2]; ++k) {
-                gp_XYZ currentPoint = Pmin + gp_XYZ(d * i, d * j, d * k);
-                classifier.Perform(currentPoint, tolerance);
-                if (classifier.State() == TopAbs_IN) {
-                    innerPoints.push_back(currentPoint);
+    // 线程安全的容器 (OpenMP 下向 vector push_back 不安全)
+    // 这里简单处理：每个线程私有 vector，最后合并
+
+#pragma omp parallel
+    {
+        // 每个线程必须拥有独立的 Classifier，因为它是非线程安全的且包含状态
+        BRepClass3d_SolidClassifier classifier(solidShape);
+        std::vector<gp_XYZ> threadPoints;
+
+#pragma omp for collapse(3) schedule(dynamic)
+        for (int i = 0; i <= nslice[0]; ++i) {
+            for (int j = 0; j <= nslice[1]; ++j) {
+                for (int k = 0; k <= nslice[2]; ++k) {
+                    gp_XYZ currentPoint = Pmin + gp_XYZ(d * i, d * j, d * k);
+                    // 快速包围盒预检查（虽然外层循环基于包围盒，但这是为了后续可能的扩展）
+                    if (currentPoint.X() > Pmax.X() || currentPoint.Y() > Pmax.Y() || currentPoint.Z() > Pmax.Z())
+                        continue;
+                    classifier.Perform(currentPoint, Precision::Confusion());
+
+                    if (classifier.State() == TopAbs_IN) {
+                        threadPoints.push_back(currentPoint);
+                    }
                 }
             }
         }
+
+        // 合并结果到主 vector (临界区)
+#pragma omp critical
+        {
+            innerPoints.insert(innerPoints.end(), threadPoints.begin(), threadPoints.end());
+        }
     }
+
     return innerPoints;
 }
 
@@ -1545,50 +1570,50 @@ void DrawWidget::onVisualizeInternalPoints() {
         qWarning("Please select exactly one shape to visualize its internal points.");
         return;
     }
-
     m_context->InitSelected();
     Handle(AIS_InteractiveObject) selectedAIS = m_context->SelectedInteractive();
     Handle(AIS_Shape) selectedAisShape = Handle(AIS_Shape)::DownCast(selectedAIS);
-
-    if (selectedAisShape.IsNull()) {
-        qWarning("Selected object is not a shape.");
-        return;
-    }
+    if (selectedAisShape.IsNull()) return;
 
     TopoDS_Shape rawShape = selectedAisShape->Shape();
     gp_Trsf shapeTrsf = selectedAisShape->Transformation();
-
     BRepBuilderAPI_Transform transform(rawShape, shapeTrsf, Standard_True);
     TopoDS_Shape shapeInWorld = transform.Shape();
     shapeInWorld.Location(TopLoc_Location());
 
+    // 计算点
     const int density = 30;
+    
     std::vector<gp_XYZ> innerPoints = GetPointsInsideSolid(shapeInWorld, density);
 
     if (innerPoints.empty()) {
-        qWarning("No internal points found or shape is not a solid.");
+        qWarning("No internal points found.");
         return;
     }
 
     qDebug() << "Generated" << innerPoints.size() << "internal points.";
 
-    TopoDS_Compound compound;
-    BRep_Builder builder;
-    builder.MakeCompound(compound);
+    // --- 优化开始：使用 AIS_PointCloud ---
 
-    for (const gp_XYZ &pt: innerPoints) {
-        builder.Add(compound, BRepBuilderAPI_MakeVertex(pt));
+    // 1. 创建图形数据数组
+    Handle(Graphic3d_ArrayOfPoints) aPoints = new Graphic3d_ArrayOfPoints(static_cast<Standard_Integer>(innerPoints.size()));
+
+    for (const gp_XYZ& pt : innerPoints) {
+        aPoints->AddVertex(pt);
     }
 
-    Handle(AIS_Shape) aisPoints = new AIS_Shape(compound);
+    // 2. 创建点云对象
+    Handle(AIS_PointCloud) aisPointCloud = new AIS_PointCloud();
+    aisPointCloud->SetPoints(aPoints);
 
-    aisPoints->SetDisplayMode(0);
-    aisPoints->SetColor(Quantity_NOC_RED);
+    // 3. 设置样式 (可选)
+    // 注意：AIS_PointCloud 的样式设置与 AIS_Shape 不同
+    Handle(Prs3d_Drawer) drawer = aisPointCloud->Attributes();
+    drawer->SetPointAspect(new Prs3d_PointAspect(Aspect_TOM_POINT, Quantity_NOC_YELLOW, 1.0));
+    // 注意：对于 PointCloud，通常用 Aspect_TOM_POINT 渲染速度最快，2.0 的大小可能需要 OpenGL 支持
 
-    Handle(Prs3d_Drawer) drawer = aisPoints->Attributes();
-    drawer->SetPointAspect(new Prs3d_PointAspect(Aspect_TOM_O_POINT, Quantity_NOC_RED, 2.0));
-
-    m_context->Display(aisPoints, Standard_True);
+    // 4. 显示
+    m_context->Display(aisPointCloud, Standard_True);
 }
 
 // 辅助函数：构建3D曲线
@@ -1893,7 +1918,7 @@ void DrawWidget::readXde() {
         if (!cmd.Execute()) {
             std::cout << "Failed to visualize CAD model with `DisplayScene` command." << std::endl;
         }
-        m_shape.s_ = cmd.getShape();
+        m_shape.s_ = cmd.GetLastShape();
     }
 }
 
