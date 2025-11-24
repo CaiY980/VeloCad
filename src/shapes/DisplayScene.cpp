@@ -1,6 +1,6 @@
 #include "DisplayScene.h"
 
-// OCCT Includes
+
 #include <AIS_ConnectedInteractive.hxx>
 #include <AIS_ColoredShape.hxx>
 #include <TDF_ChildIterator.hxx>
@@ -11,9 +11,7 @@
 #include <XCAFDoc_ColorTool.hxx>
 #include <XCAFPrs_AISObject.hxx>
 
-//-----------------------------------------------------------------------------
-// 匿名命名空间，放置辅助函数
-//-----------------------------------------------------------------------------
+
 namespace
 {
     bool IsEmptyShape(const TopoDS_Shape& shape)

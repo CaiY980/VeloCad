@@ -7,7 +7,7 @@
 #include <AIS_InteractiveObject.hxx>
 #include <NCollection_DataMap.hxx>
 #include <NCollection_List.hxx>
-#include <NCollection_DefaultHasher.hxx> // 恢复这个
+#include <NCollection_DefaultHasher.hxx> 
 #include <TDF_Label.hxx>
 #include <TopoDS_Shape.hxx>
 #include <XCAFPrs_Style.hxx>
@@ -15,7 +15,6 @@
 // 使用智能指针别名，代码更简洁
 typedef NCollection_List<Handle(AIS_InteractiveObject)> AisList;
 
-// 恢复原来的 Hasher 定义
 typedef NCollection_DataMap<TDF_Label, AisList, NCollection_DefaultHasher<TDF_Label>> LabelPrsMap;
 
 class DisplayScene : public Standard_Transient
