@@ -915,7 +915,7 @@ void DrawWidget::mouseMoveEvent(QMouseEvent *event) {
 
         gp_Trsf totalDeltaRotation = deltaRotY * deltaRotX;
 
-        gp_Trsf finalTrsf = m_dragStartTrsf * totalDeltaRotation;
+        gp_Trsf finalTrsf = totalDeltaRotation *  m_dragStartTrsf ;
 
         m_context->SetLocation(m_rotatedObject, TopLoc_Location(finalTrsf));
         m_context->Update(m_rotatedObject, Standard_True);
