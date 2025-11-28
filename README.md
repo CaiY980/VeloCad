@@ -27,8 +27,6 @@
 ### 3. 可视化与分析** (Visualization & Analysis)
 
 - **📍 可视化点:** 显示形状内部的几何点信息。
-- **🛠️ 精确 HLR:** 运行精确的消隐线算法 (基于 B-Rep)。
-- **⚡ 快速 HLR:** 运行离散的消隐线算法 (基于 Mesh)。
 
 ### **4.特征造型(Feature Modeling)**
 
@@ -117,6 +115,7 @@ VeloCAD/
 **其他操作:**
 
 - 选中一个实体。
-- 可点击 **📍 (可视化点**) 或 **🛠️ (精确 HLR)** 或⚡ **(快速 HLR)** 进行操作。
+- 可点击 **📍 (可视化点**)  进行操作。
 
-<img width="1708" height="999" alt="image" src="https://github.com/user-attachments/assets/3b697088-3a52-45cb-b044-d6b9f2e503d4"  />
+<img width="1708" height="999" alt="image" src="https://github.com/user-attachments/assets/0edf0643-76ac-4f39-8fe4-e4daa98c66b9" />
+
