@@ -208,23 +208,7 @@ public:
         s_ = make_edge_bezier;
     }
 
-    // 贝塞尔曲线（有权重）
-    void makeBezier(const std::vector<std::array<double, 3>> poles, const std::vector<double> weights) {
-        if (poles.size() != weights.size()) {
-            throw std::invalid_argument("Invalid bezier weights!");
-        }
-        TColgp_Array1OfPnt CurvePoles(1, static_cast<Standard_Integer>(poles.size()));
-        for (int i = 0; i < poles.size(); ++i) {
-            CurvePoles.SetValue(i + 1, gp_Pnt(poles[i][0], poles[i][1], poles[i][2]));
-        }
-        TColStd_Array1OfReal CurveWeights(1, static_cast<Standard_Integer>(weights.size()));
-        for (int i = 0; i < weights.size(); ++i) {
-            CurveWeights.SetValue(i + 1, weights[i]);
-        }
-        Handle(Geom_BezierCurve) bezier_curve = new Geom_BezierCurve(CurvePoles, CurveWeights);
-        BRepBuilderAPI_MakeEdge make_edge_bezier(bezier_curve);
-        s_ = make_edge_bezier;
-    }
+
 
     // B样条曲线
     void makeBSpline(const std::vector<std::array<double, 3>> poles,

@@ -55,12 +55,11 @@ private:
 
 signals:
     void selectedShapeInfo(const QJsonDocument &info);
-    void shapeMoved(const gp_Trsf &newTransform);
+    //void shapeMoved(const gp_Trsf &newTransform);
     void selectObject(int);
 public slots:
     void onMakeCompound();
-    void onRunPreciseHLR(); 
-    void onRunDiscreteHLR();
+   
     void onVisualizeInternalPoints();
     // 从外部（如 Lua 虚拟机）接收 Shape 并将其显示在场景中的入口
     void onDisplayShape(const Shape &theIObj);
@@ -109,7 +108,16 @@ protected:
 
 
 private:
+    // opName: 操作名称（用于日志，如 "Fuse"）
+    // booleanOp: 核心算法回调，接收两个形状 (Base, Tool)，返回运算后的结果形状
+    void applyBooleanOperation(const QString& opName,
+        std::function<TopoDS_Shape(const TopoDS_Shape&, const TopoDS_Shape&)> booleanOp);
 
+    // opName: 操作名称（用于打印日志）。
+    //paramValue: 用户输入的数值（半径或距离）。
+    //operation : 回调函数（Callback）。这是最关键的参数，它代表了“具体的几何算法”。它接收父形状、边和数值，返回计算后的新形状。
+    void applyEdgeOperation(const QString& opName, double paramValue,
+        std::function<TopoDS_Shape(const TopoDS_Shape&, const TopoDS_Edge&, double)> operation);
     Handle(AIS_Shape) m_infoLabel;
 
     int m_drawLineStep = 0;   // 画线步骤: 0=无, 1=等待起点, 2=等待终点
@@ -181,63 +189,7 @@ private slots:
     }
 };
 
-struct t_link {
-    int n[2];// 边的两个节点索引
 
-    t_link() { n[0] = n[1] = 0; }
-    t_link(const int _n0, const int _n1) {
-        n[0] = _n0;
-        n[1] = _n1;
-    }
-    t_link(const std::initializer_list<int> &init) {
-        n[0] = *init.begin();
-        n[1] = *(init.end() - 1);
-    }
 
-    // Hasher (函数对象)
-    struct Hasher {
-        // 1-参数: 计算哈希值
-        int operator()(const t_link &link) const {
-            int key = link.n[0] + link.n[1];// 保证 (a,b) 和 (b,a) 初始值相同
-            key += (key << 10);
-            key ^= (key >> 6);
-            key += (key << 3);
-            key ^= (key >> 11);
-            return (key & 0x7fffffff);// 确保为正数
-        }
-
-        // 2-参数: 检查是否相等
-        bool operator()(const t_link &link0, const t_link &link1) const {
-            // 检查 (a,b) == (a,b) 或 (a,b) == (b,a)
-            return ((link0.n[0] == link1.n[0]) && (link0.n[1] == link1.n[1])) ||
-                   ((link0.n[1] == link1.n[0]) && (link0.n[0] == link1.n[1]));
-        }
-    };
-};
-
-struct t_hlrEdges {
-    bool OutputVisibleSharpEdges;
-    bool OutputVisibleSmoothEdges;
-    bool OutputVisibleOutlineEdges;
-    bool OutputVisibleSewnEdges;
-    bool OutputVisibleIsoLines;
-    bool OutputHiddenSharpEdges;
-    bool OutputHiddenSmoothEdges;
-    bool OutputHiddenOutlineEdges;
-    bool OutputHiddenSewnEdges;
-    bool OutputHiddenIsoLines;
-
-    t_hlrEdges()
-        : OutputVisibleSharpEdges(true),
-          OutputVisibleSmoothEdges(true),
-          OutputVisibleOutlineEdges(true),
-          OutputVisibleSewnEdges(true),
-          OutputVisibleIsoLines(true),
-          OutputHiddenSharpEdges(false),
-          OutputHiddenSmoothEdges(false),
-          OutputHiddenOutlineEdges(false),
-          OutputHiddenSewnEdges(false),
-          OutputHiddenIsoLines(false) {}
-};
 
 #endif//3D_WIDGET_H

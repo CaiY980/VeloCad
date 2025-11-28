@@ -65,8 +65,7 @@ private:
     QAction *actionCutShapes;
     QAction *actionCommonShapes;
     QAction *actionVisualizePoints;
-    QAction *actionHlrPrecise;
-    QAction *actionHlrDiscrete;
+
     QAction *actionFillet;
     QAction *actionChamfer;
     QAction* actionMakeCompound;

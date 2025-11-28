@@ -125,8 +125,7 @@ void MainWindow::createMenuBar() {
     actionCommonShapes = new QAction("🔍 交集 (Common)", this);
     actionMakeCompound = new QAction("📦 组合 (Compound)", this);
     actionVisualizePoints = new QAction("📍 可视化点", this);
-    actionHlrPrecise = new QAction("🛠️ 精确 HLR", this);
-    actionHlrDiscrete = new QAction("⚡ 快速 HLR", this);
+
     actionFillet = new QAction("🔘 倒圆角 (Fillet)", this);
     actionChamfer = new QAction("📐 倒角 (Chamfer)", this);
 
@@ -135,9 +134,7 @@ void MainWindow::createMenuBar() {
     toolsMenu->addAction(actionCommonShapes);
     toolsMenu->addSeparator();
     toolsMenu->addAction(actionVisualizePoints);
-    toolsMenu->addSeparator();
-    toolsMenu->addAction(actionHlrPrecise);
-    toolsMenu->addAction(actionHlrDiscrete);
+
     toolsMenu->addSeparator();
     toolsMenu->addAction(actionFillet);
     toolsMenu->addAction(actionChamfer);
@@ -195,8 +192,7 @@ void MainWindow::createToolBars() {
     opsToolBar->addAction(actionCommonShapes);
     opsToolBar->addSeparator();
     opsToolBar->addAction(actionVisualizePoints);
-    opsToolBar->addAction(actionHlrPrecise);
-    opsToolBar->addAction(actionHlrDiscrete);
+
     opsToolBar->addSeparator();
     opsToolBar->addAction(actionFillet);
     opsToolBar->addAction(actionChamfer);
@@ -223,8 +219,7 @@ void MainWindow::connectActions() {
     connect(actionCutShapes, &QAction::triggered, m_drawWidget, &DrawWidget::onCutShapes);
     connect(actionCommonShapes, &QAction::triggered, m_drawWidget, &DrawWidget::onCommonShapes);
     connect(actionVisualizePoints, &QAction::triggered, m_drawWidget, &DrawWidget::onVisualizeInternalPoints);
-    connect(actionHlrPrecise, &QAction::triggered, m_drawWidget, &DrawWidget::onRunPreciseHLR);
-    connect(actionHlrDiscrete, &QAction::triggered, m_drawWidget, &DrawWidget::onRunDiscreteHLR);
+
     connect(actionFillet, &QAction::triggered, m_drawWidget, &DrawWidget::onApplyFillet);
     connect(actionChamfer, &QAction::triggered, m_drawWidget, &DrawWidget::onApplyChamfer);
     connect(actionMakeCompound, &QAction::triggered, m_drawWidget, &DrawWidget::onMakeCompound);

@@ -29,9 +29,10 @@ namespace
 bool DisplayScene::Execute()
 {
     if (m_doc.IsNull() || m_ctx.IsNull()) return false;
-
+    // 操作 XCAF 文档的入口
     Handle(XCAFDoc_ShapeTool) shapeTool = XCAFDoc_DocumentTool::ShapeTool(m_doc->Main());
     TDF_LabelSequence roots;
+    // 获取装配体顶层节点
     shapeTool->GetFreeShapes(roots);
 
     // 默认样式
@@ -43,7 +44,9 @@ bool DisplayScene::Execute()
 
     for (TDF_LabelSequence::Iterator lit(roots); lit.More(); lit.Next())
     {
+        // 当前的 OCAF 标签，代表数据结构中的一个节点
         const TDF_Label& label = lit.Value();
+        // 获取该根节点自身的变换矩阵（位置/旋转）
         TopLoc_Location parentLoc = shapeTool->GetLocation(label);
 
         try
@@ -73,6 +76,10 @@ void DisplayScene::processLabel(const TDF_Label& label,
     Handle(XCAFDoc_ShapeTool) shapeTool = XCAFDoc_DocumentTool::ShapeTool(m_doc->Main());
 
     // 1. 处理引用 (Reference)
+    /*
+    label 是当前遍历到的树节点（可能只是一个“指针”）。
+    refLabel 是最终存放几何数据的真实节点。
+    */
     TDF_Label refLabel = label;
     if (shapeTool->IsReference(label))
     {
@@ -88,7 +95,7 @@ void DisplayScene::processLabel(const TDF_Label& label,
         itemId.Prepend(parentId);
     }
 
-    // 3. 如果不是装配体（是 Component/Solid），进行显示
+    // 3. 如果不是装配体（即它是最底层的零件，是 Component/Solid），则进行显示
     if (!shapeTool->IsAssembly(refLabel))
     {
         displayComponent(refLabel, parentTrsf, itemId, mapOfOriginals);
@@ -96,8 +103,10 @@ void DisplayScene::processLabel(const TDF_Label& label,
     }
 
     // 4. 如果是装配体，解析样式并递归
+    // 父级装配体可能定义了颜色。子零件如果没有定义自己的颜色，通常应该继承父级的颜色
     XCAFPrs_Style currentStyle = resolveStyle(refLabel, parentStyle);
 
+    // refLabel 是已经解析过引用的真实节点，确保我们遍历的是真实的几何结构定义，而不是一个仅仅指向别处的“空壳”
     for (TDF_ChildIterator childIt(refLabel); childIt.More(); childIt.Next())
     {
         TDF_Label childLabel = childIt.Value();
@@ -136,6 +145,7 @@ void DisplayScene::displayComponent(const TDF_Label& refLabel,
 
         AisList newList;
         newList.Append(originalPrs);
+        // 存入 Map
         aisListPtr = mapOfOriginals.Bound(refLabel, newList);
     }
 

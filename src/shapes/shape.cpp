@@ -15,7 +15,7 @@
 #include <XCAFDoc_DocumentTool.hxx>
 #include <TDF_Label.hxx>
 #include <XCAFDoc_ShapeTool.hxx>
-
+#include <XCAFDoc_ColorTool.hxx>
 Shape& Shape::open_stl( std::string _filename) {
     if (_filename.empty()) { throw std::runtime_error("Filename is empty!"); }
     const auto ends_with = [&_filename](const std::string &suffix) {
@@ -78,7 +78,7 @@ Shape &Shape::export_step(const std::string &_filename) {
     if (!writer.Write(_filename.c_str())) { throw std::runtime_error("Failed to export STEP!"); }
     return *this;
 }
-#include <XCAFDoc_ColorTool.hxx>
+
 
 Shape &Shape::export_xde(const std::string &_filename) {
 

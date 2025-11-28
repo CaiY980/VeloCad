@@ -1,5 +1,5 @@
 #include "draw_widget.h"
-
+#include <IntCurvesFace_ShapeIntersector.hxx>
 #include <AIS_PointCloud.hxx>
 #include <Graphic3d_ArrayOfPoints.hxx>
 #include <omp.h> 
@@ -28,14 +28,10 @@
 #include <QMouseEvent>
 #include <StdSelect_BRepOwner.hxx>
 #include <TopExp.hxx>
-
 #include <V3d_View.hxx>
-
 #include <gp_Dir.hxx>
 #include <gp_Pnt2d.hxx>
 #include <gp_Trsf.hxx>
-
-
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
@@ -70,7 +66,10 @@
 #include <unordered_map>
 
 #include <WNT_Window.hxx>
-
+#include <future>
+#include <vector>
+#include <thread>
+#include <algorithm>
 
 
 // 构造函数：初始化窗口设置、UI控件和右键菜单
@@ -149,8 +148,6 @@ void DrawWidget::create_shape_1d(int id) {
             m_drawLineStep = 1;
             // qDebug() << "进入画线模式：请在视图中点击鼠标左键确定起点。";
             return; // 直接返回，等待鼠标事件
-
-         
         } else if (id == 1) {
             m_drawMode = 1;
             // qDebug() << "进入贝塞尔曲线绘制模式：左键添加控制点，右键结束绘制。";
@@ -480,44 +477,75 @@ void DrawWidget::remove_all() {
 
 // 初始化交互上下文、3D查看器和光源设置
 void DrawWidget::initialize_context() {
-    Handle(Aspect_DisplayConnection) display_connection = new Aspect_DisplayConnection();
-    WId window_handle = (WId) winId();
-    Handle(WNT_Window) wind = new WNT_Window((Aspect_Handle) window_handle);
 
+    
+    Handle(Aspect_DisplayConnection) display_connection = new Aspect_DisplayConnection();
+    WId window_handle = (WId)winId();
+    
+    Handle(WNT_Window) wind = new WNT_Window((Aspect_Handle)window_handle);
+
+    // ------------------------------------------------------------------------
+    //  创建 3D 查看器 (Viewer) 和 视图 (View)
+    // ------------------------------------------------------------------------
     m_viewer = new V3d_Viewer(new OpenGl_GraphicDriver(display_connection));
     m_view = m_viewer->CreateView();
     m_view->SetWindow(wind);
+
+ 
     if (!wind->IsMapped()) {
         wind->Map();
     }
+    // ------------------------------------------------------------------------
+    //  创建交互上下文 (AIS Context)
+    // ------------------------------------------------------------------------
     m_context = new AIS_InteractiveContext(m_viewer);
+
+    // ------------------------------------------------------------------------
+    //  配置光源 (Lighting)
+    // ------------------------------------------------------------------------
     light_direction = new V3d_Light(Graphic3d_TypeOfLightSource_Directional);
     light_direction->SetDirection(m_view->Camera()->Direction());
     m_viewer->AddLight(new V3d_Light(Graphic3d_TypeOfLightSource_Ambient));
     m_viewer->AddLight(light_direction);
     m_viewer->SetLightOn();
+
+    // ------------------------------------------------------------------------
+    // 设置背景与视图参数
+    // ------------------------------------------------------------------------
     Quantity_Color background_color;
     Quantity_Color::ColorFromHex("#505050", background_color);
     m_view->SetBackgroundColor(background_color);
     m_view->MustBeResized();
-
     create_view_cube();
     create_origin_coord();
 
+    // ------------------------------------------------------------------------
+    //  配置交互样式 (Highligthing & Selection)
+    // ------------------------------------------------------------------------
     m_context->SetDisplayMode(AIS_Shaded, Standard_True);
+
+    // --- 配置鼠标悬停（Detected）的高亮样式 ---
     Handle(Prs3d_Drawer) highlight_style = m_context->HighlightStyle();
-    highlight_style->SetMethod(Aspect_TOHM_COLOR);
-    highlight_style->SetColor(Quantity_NOC_LIGHTYELLOW);
-    highlight_style->SetDisplayMode(1);
-    highlight_style->SetTransparency(0.2f);
+    highlight_style->SetMethod(Aspect_TOHM_COLOR);       // 使用纯色覆盖方式
+    highlight_style->SetColor(Quantity_NOC_LIGHTYELLOW); // 悬停时变为淡黄色
+    highlight_style->SetDisplayMode(1);                  // 强制使用着色模式显示高亮
+    highlight_style->SetTransparency(0.2f);              // 设置 20% 透明度，透过高亮能看到物体纹理
+
+    // --- 配置鼠标选中（Selected）的样式 ---
     Handle(Prs3d_Drawer) t_select_style = m_context->SelectionStyle();
     t_select_style->SetMethod(Aspect_TOHM_COLOR);
-    t_select_style->SetColor(Quantity_NOC_LIGHTSEAGREEN);
+    t_select_style->SetColor(Quantity_NOC_LIGHTSEAGREEN); // 选中时变为海绿色
     t_select_style->SetDisplayMode(1);
-    t_select_style->SetTransparency(0.4f);
+    t_select_style->SetTransparency(0.4f);                // 设置 40% 透明度
+
+    // ------------------------------------------------------------------------
+    // 初始化网格 (Grid)
+    // ------------------------------------------------------------------------
     m_view->SetZoom(100);
     m_viewer->SetRectangularGridValues(0, 0, 1, 1, 0);
     m_viewer->SetRectangularGridGraphicValues(2.01, 2.01, 0);
+
+    // 激活矩形网格，并以线条模式显示。
     m_viewer->ActivateGrid(Aspect_GT_Rectangular, Aspect_GDM_Lines);
 }
 
@@ -669,18 +697,28 @@ void DrawWidget::finishDrawing()
 
 // 鼠标按下事件：处理对象选择、相机平移初始化和拖拽初始化
 void DrawWidget::mousePressEvent(QMouseEvent *event) {
+
     const qreal ratio = devicePixelRatioF();
 
     if (m_drawMode != 0 || m_drawLineStep > 0) {
+        // 将鼠标在 2D 屏幕上的点击点 (x, y) 转换为 3D 空间中的一条射线（Ray）
+        //vx, vy, vz: 射线的起点（通常是摄像机位置）。
+        //vdx, vdy, vdz: 射线的方向向量。
         Standard_Real vx, vy, vz, vdx, vdy, vdz;
-        m_view->ConvertWithProj(event->pos().x() * ratio, event->pos().y() * ratio, vx, vy, vz, vdx, vdy, vdz);
+        m_view->ConvertWithProj(
+            event->pos().x() * ratio, event->pos().y() * ratio, // 输入：修正后的 2D 屏幕坐标
+            vx, vy, vz,   // 输出：射线的起点 (Eye/Camera Position)
+            vdx, vdy, vdz // 输出：射线的方向 (Ray Direction)
+        );
         gp_Pnt eyePnt(vx, vy, vz);
         gp_Dir rayDir(vdx, vdy, vdz);
+
+        // 射线与平面求交
         Standard_Real x, y, z;
-        // 检查视线是否平行于地面 (避免除以零)
+        // 检查视线是否平行于地面 (避免除以零)  Precision::Confusion() 是一个 接近于0 的 极小值
         if (Abs(rayDir.Z()) > Precision::Confusion()) {
             Standard_Real t = -eyePnt.Z() / rayDir.Z();
-            // 计算交点
+            // 计算交点  eyePnt点 向 gp_Vec(rayDir) 方向 移动了 t 个单位 
             gp_Pnt intersectPnt = eyePnt.Translated(gp_Vec(rayDir).Multiplied(t));
 
             x = intersectPnt.X();
@@ -690,6 +728,8 @@ void DrawWidget::mousePressEvent(QMouseEvent *event) {
         else {
             x = vx; y = vy; z = vz;
         }
+
+
 
         gp_Pnt clickPnt(x, y, z);
 
@@ -737,59 +777,68 @@ void DrawWidget::mousePressEvent(QMouseEvent *event) {
     }
 
 
-
-
-
     m_isDraggingObject = false;
     m_isPanningCamera = false;
     m_isRotatingCamera = false;
     m_isRotatingObject = false;
     m_isMenu = false;
   
-   
     if ( event->button() & Qt::LeftButton) {
         m_x_max = event->x();
         m_y_max = event->y();
+       
         m_context->MoveTo(event->pos().x() * ratio, event->pos().y() * ratio, m_view, Standard_True);
         if (QApplication::keyboardModifiers() == Qt::ControlModifier) {
+            /*
+            // 【多选模式】如果按住了 Ctrl 键
+            // 使用 AIS_SelectionScheme_Add：将检测到的物体“添加”到当前选择集中
+            // 允许用户同时选中多个零件进行布尔运算
+            */
             m_context->SelectDetected(AIS_SelectionScheme_Add);
         } else {
+            // 【单选模式】如果没有按 Ctrl
+            // SelectDetected() 默认会清除之前的选择，只选中当前这一个
             const auto pick_status = m_context->SelectDetected();
+            // 如果成功选中了且仅选中了一个对象
             if (pick_status == AIS_SOP_OneSelected) {
+        
                 Handle(SelectMgr_EntityOwner) owner = m_context->DetectedOwner();
                 if (owner) {
                     Handle(StdSelect_BRepOwner) brepOwner = Handle(StdSelect_BRepOwner)::DownCast(owner);
                     if (!brepOwner.IsNull()) {
                         TopoDS_Shape shape = brepOwner->Shape();
+                        // HandleSelectedShape 会根据选中的是点、边还是面，在界面上显示坐标或长度
                         handleSelectedShape(shape);
                     }
                 }
             }
         }
+        // 鼠标下方有物体（HasDetected）  准备拖拽
         if (m_context->HasDetected()) {
             m_isDraggingObject = true;
 
             m_draggedObject = m_context->DetectedInteractive();
 
-
+            // 记录初始状态：记录物体移动前的“原始位置矩阵”
+            // 这是为了计算相对位移：新位置 = 偏移量 * 原始位置
             m_dragStartTrsf = m_draggedObject->Transformation();
 
 
             Standard_Real x, y, z;
-
+            // 使用 m_view->Convert 将屏幕坐标转为 3D 坐标
+            // 注意：这里的转换通常基于投影平面，用于计算鼠标移动的 Delta 值
             m_view->Convert(event->pos().x() * ratio, event->pos().y() * ratio, x, y, z);
 
             m_dragStartPos3d.SetCoord(x, y, z);
 
             Handle(SelectMgr_EntityOwner) owner = m_context->DetectedOwner();
             if (owner) {
+                // StdSelect_BRepOwner：这是 Open CASCADE 中专门用来管理 BRep (边界表示法) 拓扑结构的所有者类。只有它才包含具体的 点(Vertex)、边(Edge)、面(Face) 信息
                 Handle(StdSelect_BRepOwner) brepOwner = Handle(StdSelect_BRepOwner)::DownCast(owner);
                 if (!brepOwner.IsNull()) {
-
                     TopoDS_Shape detectedSubShape = brepOwner->Shape();
                     handleSelectedShape(detectedSubShape);
                 } else {
-
                     showFilletUI(false);
                 }
             } else {
@@ -798,14 +847,15 @@ void DrawWidget::mousePressEvent(QMouseEvent *event) {
         } else {
 
             m_isPanningCamera = true;
-
+            // 记录起点：记录鼠标点击的 2D 屏幕坐标
+            // 平移算法是基于 2D 屏幕像素差值的 (dx, dy)
             m_x_max = event->x();
             m_y_max = event->y();
             showFilletUI(false);
         }
         m_view->Update();
     } else if ( event->button() & Qt::RightButton) {
-
+        // 在执行任何判断前，强制让交互上下文 (m_context) 刷新一次检测结果。确保系统准确知道鼠标当前是否悬停在某个物体上。这是后续分支判断的基础
         m_context->MoveTo(event->pos().x() * ratio, event->pos().y() * ratio, m_view, Standard_True);
         m_isMenu = true;
         if (m_context->HasDetected()) {
@@ -830,15 +880,13 @@ void DrawWidget::mouseReleaseEvent(QMouseEvent *event) {
     const qreal ratio = devicePixelRatioF();
     m_context->MoveTo(event->pos().x() * ratio, event->pos().y() * ratio, m_view, Standard_True);
     if (event->button() == Qt::LeftButton) {
-        if (m_isDraggingObject) {
-
-            emit shapeMoved(m_draggedObject->Transformation());
-        }
+        //if (m_isDraggingObject) {
+        //    emit shapeMoved(m_draggedObject->Transformation());
+        //}
     } else if (event->button() == Qt::RightButton) {
-
-        if (m_isRotatingObject) {
-            emit shapeMoved(m_rotatedObject->Transformation());
-        }
+        //if (m_isRotatingObject) {
+        //    emit shapeMoved(m_rotatedObject->Transformation());
+        //}
         if (m_isMenu) {
             const int aNbSelected = m_context->NbSelected();
 
@@ -868,22 +916,21 @@ void DrawWidget::mouseMoveEvent(QMouseEvent *event) {
 
     const qreal ratio = devicePixelRatioF();
     if (m_isDraggingObject) {
-
         gp_Pnt currentPos3d;
         Standard_Real x, y, z;
         m_view->Convert(event->pos().x() * ratio, event->pos().y() * ratio, x, y, z);
         currentPos3d.SetCoord(x, y, z);
-
+       
         gp_Vec deltaPos = currentPos3d.XYZ() - m_dragStartPos3d.XYZ();
 
+        // 构建平移变换矩阵
         gp_Trsf deltaTrsf;
         deltaTrsf.SetTranslation(deltaPos);
-
+        // 应用变换 (原始位置 * 偏移)
         gp_Trsf finalTrsf = deltaTrsf * m_dragStartTrsf;
-
+        // 更新物体位置
         m_context->SetLocation(m_draggedObject, TopLoc_Location(finalTrsf));
         m_context->Update(m_draggedObject, Standard_True);
-
     }
 
     else if (m_isPanningCamera) {
@@ -891,9 +938,10 @@ void DrawWidget::mouseMoveEvent(QMouseEvent *event) {
         m_x_max = event->x();
         m_y_max = event->y();
 
-    } else if (m_isRotatingObject) {
+    } 
+    else if (m_isRotatingObject) {
         m_isMenu = false;
-        const double rotationSpeed = 0.01;
+        const double rotationSpeed = 0.005;
 
         gp_Pnt2d currentPos2d(event->pos().x(), event->pos().y());
         double deltaX = currentPos2d.X() - m_dragStartPos2d.X();
@@ -907,6 +955,14 @@ void DrawWidget::mouseMoveEvent(QMouseEvent *event) {
 
         gp_Dir aCamRight = aCamDir.Crossed(aCamUp);
 
+       
+        /*
+        鼠标左右移动 (deltaX) -> 绕着 竖直轴 (aCamUp) 旋转
+        这里的 (0,0,0) 指的是旋转轴心。
+        由于这个旋转矩阵 totalDeltaRotation 是被右乘到物体原始矩阵上的 (m_dragStartTrsf * totalDeltaRotation)。
+        这意味着旋转是发生在物体自身的局部坐标系中的。
+        在物体的局部坐标系里，(0,0,0) 就是物体自己的中心（或者说建模原点）。
+        */
         gp_Trsf deltaRotY;
         deltaRotY.SetRotation(gp_Ax1(gp_Pnt(0, 0, 0), aCamUp), deltaX * rotationSpeed);
 
@@ -924,6 +980,7 @@ void DrawWidget::mouseMoveEvent(QMouseEvent *event) {
         m_isMenu = false;
         m_isPanningCamera = false;
         m_isDraggingObject = false;
+        // 它根据鼠标的起点（在 StartRotation 中记录）和当前点，计算摄像机应该绕着目标中心旋转多少度
         m_view->Rotation(event->x() * ratio, event->pos().y() * ratio);
         light_direction->SetDirection(m_view->Camera()->Direction());
     }
@@ -932,6 +989,7 @@ void DrawWidget::mouseMoveEvent(QMouseEvent *event) {
         m_context->MoveTo(event->pos().x() * ratio, event->pos().y() * ratio, m_view, Standard_True);
     }
 }
+
 void DrawWidget::keyPressEvent(QKeyEvent* event)
 {
     if (event->key() == Qt::Key_E) {
@@ -946,6 +1004,7 @@ void DrawWidget::keyPressEvent(QKeyEvent* event)
 // 滚轮事件：处理视图缩放
 void DrawWidget::wheelEvent(QWheelEvent *event) {
     const qreal ratio = devicePixelRatioF();
+    // 以鼠标光标为中心的缩放
     m_view->StartZoomAtPoint((int) (event->position().x() * ratio), (int) (event->position().y() * ratio));
     m_view->ZoomAtPoint(0, 0, event->angleDelta().y(), 0);
 }
@@ -954,7 +1013,9 @@ void DrawWidget::wheelEvent(QWheelEvent *event) {
 void DrawWidget::createContextMenu() {
     m_contextMenu = new QMenu(this);
     m_selectionModeGroup = new QActionGroup(this);
+
     const auto selectShapes = m_selectionModeGroup->addAction("Select Shapes");
+    // 将一个整数值隐藏存储在菜单项中
     selectShapes->setData(static_cast<int>(TopAbs_SHAPE));
     const auto selectVector = m_selectionModeGroup->addAction("Select Vertices");
     selectVector->setData(static_cast<int>(TopAbs_VERTEX));
@@ -972,6 +1033,7 @@ void DrawWidget::createContextMenu() {
     }
     selectShapes->setChecked(true);
     m_contextMenu->addActions(action_list);
+    // 在 selectVector ("Select Vertices") 之前插入一条横线
     m_contextMenu->insertSeparator(selectVector);
     connect(m_contextMenu, &QMenu::triggered, this, &DrawWidget::selectActionTriggered);
 
@@ -1006,8 +1068,7 @@ void DrawWidget::createContextMenu() {
     m_hlrPreciseAction = new QAction(tr("Run Precise HLR (Slow, B-Rep)"), this);
     m_hlrDiscreteAction = new QAction(tr("Run Discrete HLR (Fast, Mesh)"), this);
 
-    connect(m_hlrPreciseAction, &QAction::triggered, this, &DrawWidget::onRunPreciseHLR);
-    connect(m_hlrDiscreteAction, &QAction::triggered, this, &DrawWidget::onRunDiscreteHLR);
+
 
     m_contextMenu->addAction(m_hlrPreciseAction);
     m_contextMenu->addAction(m_hlrDiscreteAction);
@@ -1016,7 +1077,7 @@ void DrawWidget::createContextMenu() {
     m_hlrDiscreteAction->setEnabled(false);
 }
 
-// 设置交互上下文的选择模式（如点、边、面、实体）
+// 决定了当你在模型上点击鼠标时，选中的是整个物体，还是物体上的一个点、一条边或一个面。
 void DrawWidget::setSelectionMode(TopAbs_ShapeEnum mode) {
     if (!m_context.IsNull()) {
         m_context->ClearSelected(Standard_False);
@@ -1033,6 +1094,9 @@ void DrawWidget::handleSelectedShape(const TopoDS_Shape &shape) {
     // 1. 生成信息文本
     std::string infoText;
     if (shape.ShapeType() == TopAbs_VERTEX) {
+
+
+
         // 如果是点，显示坐标
         TopoDS_Vertex v = TopoDS::Vertex(shape);
         gp_Pnt p = BRep_Tool::Pnt(v);
@@ -1043,6 +1107,17 @@ void DrawWidget::handleSelectedShape(const TopoDS_Shape &shape) {
     }
 
     else if (shape.ShapeType() == TopAbs_EDGE) {
+        showFilletUI(true);
+        // 1. 保存选中的边
+        m_selectedEdge = TopoDS::Edge(shape);
+
+        // 2. 保存选中的父物体 (AIS_Shape)
+        // 我们需要知道这条边属于哪个大的 3D 物体，因为倒角操作是针对父物体的。
+        // DetectedInteractive() 返回当前鼠标下的整个交互对象。
+        Handle(AIS_InteractiveObject) detectedObj = m_context->DetectedInteractive();
+        m_selectedAISShape = Handle(AIS_Shape)::DownCast(detectedObj);
+
+
         // 如果是边，显示长度
         GProp_GProps props;
         BRepGProp::LinearProperties(shape, props);
@@ -1061,7 +1136,14 @@ void DrawWidget::handleSelectedShape(const TopoDS_Shape &shape) {
     double xmin, ymin, zmin, xmax, ymax, zmax;
     bbox.Get(xmin, ymin, zmin, xmax, ymax, zmax);
 
-    // 位置偏移一点，避免完全重叠
+    /*
+    求几何中心（平均值）：
+    (xmin + xmax) / 2.0：算出 X 轴的中点。
+    (ymin + ymax) / 2.0：算出 Y 轴的中点。
+    (zmin + zmax) / 2.0：算出 Z 轴（高度）的中点。
+    如果不加偏移，文字就会正好显示在物体的肚子里（正中心）。
+    应用 Z 轴偏移 (+ 0.2)：
+    */
     gp_Pnt textPos((xmin + xmax) / 2.0, (ymin + ymax) / 2.0, (zmin + zmax) / 2.0 + 0.2);
 
     // 3. 生成 3D 文字形状
@@ -1100,9 +1182,9 @@ void DrawWidget::handleSelectedShape(const TopoDS_Shape &shape) {
 void DrawWidget::showFilletUI(bool show) {
     if (show) {
         if (m_filletWidget) {
-            QSize uiSize = m_filletWidget->sizeHint();
-            int x = width() - uiSize.width() - 10;
-            int y = 10;
+            QSize uiSize = m_filletWidget->sizeHint(); // 获取面板的推荐大小
+            int x = width() - uiSize.width() - 10;  // 计算 X 坐标：窗口总宽度 - 面板宽度 - 10像素边距
+            int y = 10;  // 计算 Y 坐标：距离顶部 10 像素
             m_filletWidget->move(qMax(0, x), y);
             m_filletWidget->show();
         }
@@ -1110,6 +1192,10 @@ void DrawWidget::showFilletUI(bool show) {
         if (m_filletWidget) {
             m_filletWidget->hide();
         }
+        // 【关键状态管理】
+        // 当 UI 隐藏时，意味着圆角操作流程结束或取消。
+        // 必须把之前记录的“选中的物体”和“选中的边”指针置空 (Nullify)。
+        // 防止后续在没有 UI 的情况下误操作旧的对象，或者导致内存泄露/野指针引用。
         m_selectedAISShape.Nullify();
         m_selectedEdge.Nullify();
     }
@@ -1118,382 +1204,276 @@ void DrawWidget::showFilletUI(bool show) {
         m_context->Remove(m_infoLabel, Standard_True);
         m_infoLabel.Nullify();
     }
-
-
 }
 
-// 对选中的边应用圆角操作，并更新模型显示
+// -----------------------------------------------------------------------------
+// 公共辅助函数：封装圆角与倒角通用部分
+// -----------------------------------------------------------------------------
+void DrawWidget::applyEdgeOperation(const QString& opName, double paramValue,
+    std::function<TopoDS_Shape(const TopoDS_Shape&, const TopoDS_Edge&, double)> operation)
+{
+    // 基础校验
+    if (m_selectedAISShape.IsNull() || m_selectedEdge.IsNull()) {
+        qWarning() << opName << ": No valid edge or parent shape selected.";
+        return;
+    }
+    if (paramValue <= 0) {
+        qWarning() << opName << ": Parameter value must be greater than 0.";
+        return;
+    }
+
+    TopoDS_Shape parentShape = m_selectedAISShape->Shape();
+    if (parentShape.ShapeType() != TopAbs_SOLID && parentShape.ShapeType() != TopAbs_SHELL) {
+        qWarning() << opName << ": Only solid/shell supports this operation.";
+        return;
+    }
+
+    try {
+        // 执行具体的几何算法 (回调函数)
+        // 注意：如果算法失败，回调内部应该抛出异常或返回空形状
+        TopoDS_Shape newShape = operation(parentShape, m_selectedEdge, paramValue);
+
+        if (newShape.IsNull()) {
+            qWarning() << opName << ": Operation returned null shape.";
+            return;
+        }
+
+        // 提取结果中的 Solid
+        TopoDS_Shape newSolidShape;
+        TopExp_Explorer solidExplorer;
+        for (solidExplorer.Init(newShape, TopAbs_SOLID); solidExplorer.More(); solidExplorer.Next()) {
+            newSolidShape = solidExplorer.Current();
+            break;
+        }
+
+        if (newSolidShape.IsNull()) {
+            qWarning() << opName << ": Operation succeeded but no Solid was returned.";
+            return;
+        }
+
+        // 更新 3D 显示 (保持颜色和透明度)
+        Quantity_Color color;
+        m_selectedAISShape->Color(color);
+        Standard_Real transparency = m_selectedAISShape->Transparency();
+
+        // 移除旧物体 (不立即刷新)
+        m_context->Remove(m_selectedAISShape, Standard_False);
+
+        // 更新内部数据
+        m_shape.s_ = newSolidShape;
+        m_shape.color_ = color;
+
+        // 创建新显示对象
+        Handle(AIS_Shape) newAisShape = new AIS_Shape(newSolidShape);
+        newAisShape->SetColor(color);
+        newAisShape->SetTransparency(transparency);
+        newAisShape->SetDisplayMode(AIS_Shaded);
+
+        // 显示并选中
+        m_context->Display(newAisShape, Standard_True);
+        m_context->SetCurrentObject(newAisShape, Standard_True);
+
+        // 关闭 UI
+        showFilletUI(false);
+
+    }
+    catch (const std::exception& e) {
+        qCritical() << opName << ": Exception occurred:" << e.what();
+        showFilletUI(false);
+    }
+    catch (...) {
+        qCritical() << opName << ": Unknown exception occurred.";
+        showFilletUI(false);
+    }
+}
+
+
 void DrawWidget::onApplyFillet() {
-    if (m_selectedAISShape.IsNull() || m_selectedEdge.IsNull()) {
-        qWarning("onApplyFillet: No valid edge or parent shape selected.");
-        return;
-    }
-    if (!m_filletSpinBox) {
-        qWarning("onApplyFillet: Fillet spin box not initialized.");
-        return;
-    }
+    if (!m_filletSpinBox) return;
 
-    double radius = m_filletSpinBox->value();
-    if (radius <= 0) {
-        qWarning("onApplyFillet: Radius must be greater than 0.");
-        return;
-    }
+    // 调用公共函数
+    applyEdgeOperation("onApplyFillet", m_filletSpinBox->value(),
+        [](const TopoDS_Shape& parent, const TopoDS_Edge& edge, double radius) -> TopoDS_Shape {
 
-    TopoDS_Shape parentShape = m_selectedAISShape->Shape();
-    if (parentShape.ShapeType() != TopAbs_SOLID && parentShape.ShapeType() != TopAbs_SHELL) {
-        qWarning("onApplyFillet: Only solid/shell supports fillet.");
-        return;
-    }
+            BRepFilletAPI_MakeFillet filletMaker(parent);
+            filletMaker.Add(radius, edge);
+            filletMaker.Build();
 
-    try {
-        BRepFilletAPI_MakeFillet filletMaker(parentShape);
-        filletMaker.Add(radius, m_selectedEdge);
-
-        filletMaker.Build();
-        if (!filletMaker.IsDone()) {
-            qWarning("onApplyFillet: Fillet operation failed. Possible reasons: radius too large / edge invalid.");
-            return;
-        }
-
-        TopoDS_Shape newShape = filletMaker.Shape();
-        if (newShape.IsNull()) {
-            qWarning("onApplyFillet: Result shape is null.");
-            return;
-        }
-
-        TopoDS_Shape newSolidShape;
-        TopExp_Explorer solidExplorer;
-
-        for (solidExplorer.Init(newShape, TopAbs_SOLID);
-             solidExplorer.More();
-             solidExplorer.Next()) {
-            newSolidShape = solidExplorer.Current();
-            break;
-        }
-
-        if (newSolidShape.IsNull()) {
-            qWarning("onApplyFillet: Fillet operation succeeded but no Solid was returned.");
-            qWarning("Possible reasons: invalid input shape, incorrect fillet parameters, or non-solid input.");
-            return;
-        }
-
-        Quantity_Color color;
-        m_selectedAISShape->Color(color);
-        Standard_Real transparency = m_selectedAISShape->Transparency();
-
-        m_context->Remove(m_selectedAISShape, Standard_False);
-        m_shape.s_ = newSolidShape;
-        Handle(AIS_Shape) newAisShape = new AIS_Shape(newSolidShape);
-        m_shape.color_ = color;
-        newAisShape->SetColor(color);
-        newAisShape->SetTransparency(transparency);
-        newAisShape->SetDisplayMode(AIS_Shaded);
-
-        m_context->Display(newAisShape, Standard_True);
-        m_context->SetCurrentObject(newAisShape, Standard_True);
-
-        showFilletUI(false);
-
-    } catch (const std::exception &e) {
-        qCritical() << "onApplyFillet: Exception occurred:" << e.what();
-        showFilletUI(false);
-    }
+            if (!filletMaker.IsDone()) {
+                throw std::runtime_error("Fillet algorithm failed (radius too large?)");
+            }
+            return filletMaker.Shape();
+        });
 }
 
-// 对选中的边应用倒角操作，并更新模型显示
+
+
 void DrawWidget::onApplyChamfer() {
-    if (m_selectedAISShape.IsNull() || m_selectedEdge.IsNull()) {
-        qWarning("onApplyChamfer: No valid edge or parent shape selected.");
-        return;
-    }
-    if (!m_chamferSpinBox) {
-        qWarning("onApplyChamfer: Chamfer spin box not initialized.");
-        return;
-    }
+    if (!m_chamferSpinBox) return;
 
-    double distance = m_chamferSpinBox->value();
-    if (distance <= 0) {
-        qWarning("onApplyChamfer: Distance must be greater than 0.");
-        return;
-    }
+   
+    applyEdgeOperation("onApplyChamfer", m_chamferSpinBox->value(),
+        [](const TopoDS_Shape& parent, const TopoDS_Edge& edge, double dist) -> TopoDS_Shape {
 
-    TopoDS_Shape parentShape = m_selectedAISShape->Shape();
-    if (parentShape.ShapeType() != TopAbs_SOLID && parentShape.ShapeType() != TopAbs_SHELL) {
-        qWarning("onApplyChamfer: Only solid/shell supports chamfer.");
-        return;
-    }
+            // 倒角特有的逻辑：查找相邻面
+            TopTools_IndexedDataMapOfShapeListOfShape edgeFaceMap;
+            TopExp::MapShapesAndAncestors(parent, TopAbs_EDGE, TopAbs_FACE, edgeFaceMap);
 
-    try {
-        TopTools_IndexedDataMapOfShapeListOfShape edgeFaceMap;
-        TopExp::MapShapesAndAncestors(parentShape, TopAbs_EDGE, TopAbs_FACE, edgeFaceMap);
+            if (!edgeFaceMap.Contains(edge)) {
+                throw std::runtime_error("No adjacent faces found for selected edge.");
+            }
 
-        if (!edgeFaceMap.Contains(m_selectedEdge)) {
-            qWarning("onApplyChamfer: No adjacent faces found for selected edge.");
-            return;
-        }
+            const TopTools_ListOfShape& adjacentFaces = edgeFaceMap.FindFromKey(edge);
+            if (adjacentFaces.IsEmpty()) {
+                throw std::runtime_error("Adjacent faces list is empty.");
+            }
 
-        const TopTools_ListOfShape &adjacentFaces = edgeFaceMap.FindFromKey(m_selectedEdge);
-        if (adjacentFaces.IsEmpty()) {
-            qWarning("onApplyChamfer: Adjacent faces list is empty.");
-            return;
-        }
+            // 通常取第一个面作为参考面
+            TopoDS_Face refFace = TopoDS::Face(adjacentFaces.First());
 
-        TopoDS_Face refFace = TopoDS::Face(adjacentFaces.First());
+            BRepFilletAPI_MakeChamfer chamferMaker(parent);
+            // 这里假设是对称倒角 (dist, dist)
+            chamferMaker.Add(dist, dist, edge, refFace);
+            chamferMaker.Build();
 
-        BRepFilletAPI_MakeChamfer chamferMaker(parentShape);
-        chamferMaker.Add(distance, distance, m_selectedEdge, refFace);
-
-        chamferMaker.Build();
-        if (!chamferMaker.IsDone()) {
-            qWarning("onApplyChamfer: Chamfer operation failed. Possible reasons: distance too large / edge invalid.");
-            return;
-        }
-
-        TopoDS_Shape newShape = chamferMaker.Shape();
-        if (newShape.IsNull()) {
-            qWarning("onApplyChamfer: Result shape is null.");
-            return;
-        }
-
-        TopoDS_Shape newSolidShape;
-        TopExp_Explorer solidExplorer;
-
-        for (solidExplorer.Init(newShape, TopAbs_SOLID);
-             solidExplorer.More();
-             solidExplorer.Next()) {
-            newSolidShape = solidExplorer.Current();
-            break;
-        }
-
-        if (newSolidShape.IsNull()) {
-            qWarning("onApplyFillet: Fillet operation succeeded but no Solid was returned.");
-            qWarning("Possible reasons: invalid input shape, incorrect fillet parameters, or non-solid input.");
-            return;
-        }
-
-        Quantity_Color color;
-        m_selectedAISShape->Color(color);
-        m_shape.color_ = color;
-        Standard_Real transparency = m_selectedAISShape->Transparency();
-
-        m_context->Remove(m_selectedAISShape, Standard_False);
-        m_shape.s_ = newSolidShape;
-        Handle(AIS_Shape) newAisShape = new AIS_Shape(newSolidShape);
-        newAisShape->SetColor(color);
-        newAisShape->SetTransparency(transparency);
-        newAisShape->SetDisplayMode(AIS_Shaded);
-
-        m_context->Display(newAisShape, Standard_True);
-        m_context->SetCurrentObject(newAisShape, Standard_True);
-
-        showFilletUI(false);
-
-    } catch (const std::exception &e) {
-        qCritical() << "onApplyChamfer: Exception occurred:" << e.what();
-        showFilletUI(false);
-    }
+            if (!chamferMaker.IsDone()) {
+                throw std::runtime_error("Chamfer algorithm failed (distance too large?)");
+            }
+            return chamferMaker.Shape();
+        });
 }
 
-// 执行布尔并集运算：合并选中的多个形状
+// -----------------------------------------------------------------------------
+// 公共辅助函数：封装布尔运算通用流程
+// -----------------------------------------------------------------------------
+void DrawWidget::applyBooleanOperation(const QString& opName,
+    std::function<TopoDS_Shape(const TopoDS_Shape&, const TopoDS_Shape&)> booleanOp)
+{
+    // 检查选中数量
+    if (m_context->NbSelected() < 2) {
+        qWarning() << opName << ": Need at least 2 objects selected.";
+        return;
+    }
+
+    // 收集选中物体
+    AIS_ListOfInteractive selectedList;
+    m_context->InitSelected();
+    while (m_context->MoreSelected()) {
+        selectedList.Append(m_context->SelectedInteractive());
+        m_context->NextSelected();
+    }
+
+    // 准备基础形状 (Base Shape)
+    Handle(AIS_Shape) baseAisShape = Handle(AIS_Shape)::DownCast(selectedList.First());
+    if (baseAisShape.IsNull()) {
+        qWarning() << opName << ": Selected object 1 is not a shape.";
+        return;
+    }
+
+    // 应用变换矩阵：将物体从局部坐标系转到世界坐标系
+    // 如果不这样做，布尔运算会假设所有物体都在生成时的原点位置
+    TopoDS_Shape resultShape = BRepBuilderAPI_Transform(
+        baseAisShape->Shape(),
+        baseAisShape->Transformation(),
+        Standard_True // Copy geometry
+    ).Shape();
+
+ 
+    // 已经把位移应用到顶点上了，现在请把你的‘相对位移记录’清零
+    resultShape.Location(TopLoc_Location());
+
+    // 遍历并执行运算
+    AIS_ListOfInteractive::Iterator anIter(selectedList);
+    anIter.Next(); // 跳过第一个（Base）
+
+    for (; anIter.More(); anIter.Next()) {
+        Handle(AIS_Shape) toolAisShape = Handle(AIS_Shape)::DownCast(anIter.Value());
+        if (toolAisShape.IsNull()) { continue; }
+
+        // 应用变换矩阵到工具形状 (Tool Shape)
+        TopoDS_Shape transformedToolShape = BRepBuilderAPI_Transform(
+            toolAisShape->Shape(),
+            toolAisShape->Transformation(),
+            Standard_True
+        ).Shape();
+        transformedToolShape.Location(TopLoc_Location());
+
+        try {
+            // --- 调用回调函数执行具体的算法 ---
+            TopoDS_Shape nextShape = booleanOp(resultShape, transformedToolShape);
+
+            if (!nextShape.IsNull()) {
+                resultShape = nextShape;
+                resultShape.Location(TopLoc_Location());
+            }
+            else {
+                qWarning() << opName << ": Algorithm failed (null result).";
+            }
+        }
+        catch (const std::exception& e) {
+            qCritical() << opName << ": Operation failed:" << e.what();
+        }
+    }
+
+    // 移除旧物体
+    for (AIS_ListOfInteractive::Iterator it(selectedList); it.More(); it.Next()) {
+        m_context->Remove(it.Value(), Standard_False);
+    }
+
+    // 显示新物体 (继承第一个物体的外观属性)
+    m_shape.s_ = resultShape;
+    Handle(AIS_Shape) newAisShape = new AIS_Shape(resultShape);
+
+    Quantity_Color color;
+    baseAisShape->Color(color);
+    m_shape.color_ = color;
+
+    newAisShape->SetColor(color);
+    newAisShape->SetTransparency(baseAisShape->Transparency());
+    newAisShape->SetMaterial(Graphic3d_NameOfMaterial_Stone);
+
+    m_context->Display(newAisShape, Standard_True);
+    m_context->SetCurrentObject(newAisShape, Standard_True);
+}
+
 void DrawWidget::onFuseShapes() {
-    if (m_context->NbSelected() < 2) { return; }
-
-    AIS_ListOfInteractive selectedList;
-    m_context->InitSelected();
-    while (m_context->MoreSelected()) {
-        selectedList.Append(m_context->SelectedInteractive());
-        m_context->NextSelected();
-    }
-
-    Handle(AIS_InteractiveObject) baseAIS = selectedList.First();
-    Handle(AIS_Shape) baseAisShape = Handle(AIS_Shape)::DownCast(baseAIS);
-    if (baseAisShape.IsNull()) {
-        qWarning("Fuse: Selected object 1 is not a shape.");
-        return;
-    }
-
-    TopoDS_Shape baseRawShape = baseAisShape->Shape();
-    BRepBuilderAPI_Transform baseTransform(baseRawShape, baseAisShape->Transformation(), Standard_True);
-    TopoDS_Shape resultShape = baseTransform.Shape();
-    resultShape.Location(TopLoc_Location());
-
-    AIS_ListOfInteractive::Iterator anIter(selectedList);
-    anIter.Next();
-
-    for (; anIter.More(); anIter.Next()) {
-        Handle(AIS_Shape) toolAisShape = Handle(AIS_Shape)::DownCast(anIter.Value());
-        if (toolAisShape.IsNull()) { continue; }
-
-        TopoDS_Shape toolRawShape = toolAisShape->Shape();
-        TopLoc_Location toolLocation = toolAisShape->LocalTransformation();
-        BRepBuilderAPI_Transform toolTransform(toolRawShape, toolLocation.Transformation(), Standard_True);
-        TopoDS_Shape transformedToolShape = toolTransform.Shape();
-        transformedToolShape.Location(TopLoc_Location());
-
-        try {
-            BRepAlgoAPI_Fuse algo(resultShape, transformedToolShape);
-            if (algo.IsDone()) {
-                resultShape = algo.Shape();
-                resultShape.Location(TopLoc_Location());
-            } else {
-                qWarning("Fuse: BRepAlgoAPI_Fuse failed. Possible reasons: shapes do not intersect / invalid topology.");
-            }
-        } catch (const std::exception &e) {
-            qDebug() << "Fuse operation failed:" << e.what();
+    applyBooleanOperation("Fuse", [](const TopoDS_Shape& s1, const TopoDS_Shape& s2) -> TopoDS_Shape {
+        BRepAlgoAPI_Fuse algo(s1, s2);
+        if (algo.IsDone()) {
+            return algo.Shape();
         }
-    }
-
-    for (AIS_ListOfInteractive::Iterator it(selectedList); it.More(); it.Next()) {
-        m_context->Remove(it.Value(), Standard_False);
-    }
-    m_shape.s_ = resultShape;
-    Handle(AIS_Shape) newAisShape = new AIS_Shape(resultShape);
-    Quantity_Color color;
-    baseAisShape->Color(color);
-    newAisShape->SetColor(color);
-    m_shape.color_ = color;
-    newAisShape->SetTransparency(baseAisShape->Transparency());
-    newAisShape->SetMaterial(Graphic3d_NameOfMaterial_Stone);
-    m_context->Display(newAisShape, Standard_True);
-    m_context->SetCurrentObject(newAisShape, Standard_True);
+        throw std::runtime_error("Shapes do not intersect or invalid topology");
+        });
 }
-
-// 执行布尔差集运算：用后续形状剪裁第一个形状
 void DrawWidget::onCutShapes() {
-    if (m_context->NbSelected() < 2) { return; }
-
-    AIS_ListOfInteractive selectedList;
-    m_context->InitSelected();
-    while (m_context->MoreSelected()) {
-        selectedList.Append(m_context->SelectedInteractive());
-        m_context->NextSelected();
-    }
-
-    Handle(AIS_Shape) baseAisShape = Handle(AIS_Shape)::DownCast(selectedList.First());
-    if (baseAisShape.IsNull()) {
-        qWarning("Cut: Selected object 1 is not a shape.");
-        return;
-    }
-
-    TopoDS_Shape resultShape = BRepBuilderAPI_Transform(
-            baseAisShape->Shape(),
-            baseAisShape->Transformation(),
-            Standard_True);
-    resultShape.Location(TopLoc_Location());
-
-    AIS_ListOfInteractive::Iterator anIter(selectedList);
-    anIter.Next();
-
-    for (; anIter.More(); anIter.Next()) {
-        Handle(AIS_Shape) toolAisShape = Handle(AIS_Shape)::DownCast(anIter.Value());
-        if (toolAisShape.IsNull()) { continue; }
-
-        TopoDS_Shape transformedToolShape = BRepBuilderAPI_Transform(
-                toolAisShape->Shape(),
-                toolAisShape->Transformation(),
-                Standard_True);
-        transformedToolShape.Location(TopLoc_Location());
-
-        try {
-            BRepAlgoAPI_Cut algo(resultShape, transformedToolShape);
-            if (algo.IsDone()) {
-                resultShape = algo.Shape();
-                resultShape.Location(TopLoc_Location());
-            } else {
-                qWarning("Cut: BRepAlgoAPI_Cut failed. Possible reasons: shapes do not intersect / invalid topology.");
-            }
-        } catch (const std::exception &e) {
-            qDebug() << "Cut operation failed:" << e.what();
+    applyBooleanOperation("Cut", [](const TopoDS_Shape& s1, const TopoDS_Shape& s2) -> TopoDS_Shape {
+        BRepAlgoAPI_Cut algo(s1, s2);
+        if (algo.IsDone()) {
+            return algo.Shape();
         }
-    }
-
-    for (AIS_ListOfInteractive::Iterator it(selectedList); it.More(); it.Next()) {
-        m_context->Remove(it.Value(), Standard_False);
-    }
-    m_shape.s_ = resultShape;
-    Handle(AIS_Shape) newAisShape = new AIS_Shape(resultShape);
-    Quantity_Color color;
-    baseAisShape->Color(color);
-    m_shape.color_ = color;
-    newAisShape->SetColor(color);
-    newAisShape->SetTransparency(baseAisShape->Transparency());
-    newAisShape->SetMaterial(Graphic3d_NameOfMaterial_Stone);
-    m_context->Display(newAisShape, Standard_True);
-    m_context->SetCurrentObject(newAisShape, Standard_True);
+        throw std::runtime_error("Cut operation failed");
+        });
 }
-
-// 执行布尔交集运算：保留选中形状的重叠部分
 void DrawWidget::onCommonShapes() {
-    if (m_context->NbSelected() < 2) { return; }
-
-    AIS_ListOfInteractive selectedList;
-    m_context->InitSelected();
-    while (m_context->MoreSelected()) {
-        selectedList.Append(m_context->SelectedInteractive());
-        m_context->NextSelected();
-    }
-
-    Handle(AIS_Shape) baseAisShape = Handle(AIS_Shape)::DownCast(selectedList.First());
-    if (baseAisShape.IsNull()) {
-        qWarning("Common: Selected object 1 is not a shape.");
-        return;
-    }
-
-    TopoDS_Shape resultShape = BRepBuilderAPI_Transform(
-            baseAisShape->Shape(),
-            baseAisShape->Transformation(),
-            Standard_True);
-    resultShape.Location(TopLoc_Location());
-
-    AIS_ListOfInteractive::Iterator anIter(selectedList);
-    anIter.Next();
-
-    for (; anIter.More(); anIter.Next()) {
-        Handle(AIS_Shape) toolAisShape = Handle(AIS_Shape)::DownCast(anIter.Value());
-        if (toolAisShape.IsNull()) { continue; }
-
-        TopoDS_Shape transformedToolShape = BRepBuilderAPI_Transform(
-                toolAisShape->Shape(),
-                toolAisShape->Transformation(),
-                Standard_True);
-        transformedToolShape.Location(TopLoc_Location());
-
-        try {
-            BRepAlgoAPI_Common algo(resultShape, transformedToolShape);
-            if (algo.IsDone()) {
-                resultShape = algo.Shape();
-                resultShape.Location(TopLoc_Location());
-            } else {
-                qWarning("Common: BRepAlgoAPI_Common failed. Possible reasons: shapes do not intersect / invalid topology.");
-            }
-        } catch (const std::exception &e) {
-            qDebug() << "Common operation failed:" << e.what();
+    applyBooleanOperation("Common", [](const TopoDS_Shape& s1, const TopoDS_Shape& s2) -> TopoDS_Shape {
+        BRepAlgoAPI_Common algo(s1, s2);
+        if (algo.IsDone()) {
+            return algo.Shape();
         }
-    }
-
-    for (AIS_ListOfInteractive::Iterator it(selectedList); it.More(); it.Next()) {
-        m_context->Remove(it.Value(), Standard_False);
-    }
-    m_shape.s_ = resultShape;
-    Handle(AIS_Shape) newAisShape = new AIS_Shape(resultShape);
-    Quantity_Color color;
-    baseAisShape->Color(color);
-    m_shape.color_ = color;
-    newAisShape->SetColor(color);
-    newAisShape->SetTransparency(baseAisShape->Transparency());
-    newAisShape->SetMaterial(Graphic3d_NameOfMaterial_Stone);
-    m_context->Display(newAisShape, Standard_True);
-    m_context->SetCurrentObject(newAisShape, Standard_True);
+        throw std::runtime_error("Common operation failed");
+        });
 }
+
 
 
 std::vector<gp_XYZ> GetPointsInsideSolid(
     const TopoDS_Shape& solidShape,
-    const int density = 20) 
+    const int density = 20)
 {
     std::vector<gp_XYZ> innerPoints;
     if (solidShape.IsNull() || density <= 0) return innerPoints;
 
+    // 计算包围盒
     Bnd_Box aabb;
     BRepBndLib::Add(solidShape, aabb, true);
     if (aabb.IsVoid()) return innerPoints;
@@ -1502,67 +1482,158 @@ std::vector<gp_XYZ> GetPointsInsideSolid(
     gp_XYZ Pmax = aabb.CornerMax().XYZ();
     gp_XYZ D = Pmax - Pmin;
 
-    // 防止极小包围盒导致除零
     if (D.X() < Precision::Confusion()) D.SetX(1.0);
     if (D.Y() < Precision::Confusion()) D.SetY(1.0);
     if (D.Z() < Precision::Confusion()) D.SetZ(1.0);
 
-    // 步长计算逻辑优化建议：防止某一维过细导致点数爆炸
-    // 这里保持你的逻辑，但建议生产环境增加步长下限
+    // 计算步长与网格数量
     double dims[3] = { D.X(), D.Y(), D.Z() };
     const double mind = Min(dims[0], Min(dims[1], dims[2]));
     const double d = mind / density;
 
     if (d < Precision::Confusion()) return innerPoints;
 
-    const int nslice[3] = {
-            static_cast<int>(ceil(dims[0] / d)),
-            static_cast<int>(ceil(dims[1] / d)),
-            static_cast<int>(ceil(dims[2] / d)) };
+    const int nx = static_cast<int>(ceil(dims[0] / d));
+    const int ny = static_cast<int>(ceil(dims[1] / d));
+    const int nz = static_cast<int>(ceil(dims[2] / d));
 
-    // 预估总点数用于 reserve，减少 vector 扩容开销
-    long long estimatedCount = (long long)nslice[0] * nslice[1] * nslice[2];
-    // 安全检查：如果点数过大（如超过100万），可能需要报警或截断
-    if (estimatedCount > 1000000) {
-        qWarning() << "Estimated points too high:" << estimatedCount;
-        // 可以在此强制调整 d
-    }
+    // 预估内存
+    long long estimatedCount = (long long)nx * ny * nz * 0.5;
+    if (estimatedCount > 0) innerPoints.reserve(estimatedCount);
 
-    // 线程安全的容器 (OpenMP 下向 vector push_back 不安全)
-    // 这里简单处理：每个线程私有 vector，最后合并
+    // 准备求交器 (单线程只需要一个实例)
+    IntCurvesFace_ShapeIntersector intersector;
+    intersector.Load(solidShape, Precision::Confusion());
 
-#pragma omp parallel
-    {
-        // 每个线程必须拥有独立的 Classifier，因为它是非线程安全的且包含状态
-        BRepClass3d_SolidClassifier classifier(solidShape);
-        std::vector<gp_XYZ> threadPoints;
+    // 循环 (Y 和 Z)
+    for (int j = 0; j <= ny; ++j) {
+        for (int k = 0; k <= nz; ++k) {
 
-#pragma omp for collapse(3) schedule(dynamic)
-        for (int i = 0; i <= nslice[0]; ++i) {
-            for (int j = 0; j <= nslice[1]; ++j) {
-                for (int k = 0; k <= nslice[2]; ++k) {
-                    gp_XYZ currentPoint = Pmin + gp_XYZ(d * i, d * j, d * k);
-                    // 快速包围盒预检查（虽然外层循环基于包围盒，但这是为了后续可能的扩展）
-                    if (currentPoint.X() > Pmax.X() || currentPoint.Y() > Pmax.Y() || currentPoint.Z() > Pmax.Z())
-                        continue;
-                    classifier.Perform(currentPoint, Precision::Confusion());
+            double y = Pmin.Y() + j * d;
+            double z = Pmin.Z() + k * d;
 
-                    if (classifier.State() == TopAbs_IN) {
-                        threadPoints.push_back(currentPoint);
-                    }
+            if (y > Pmax.Y() || z > Pmax.Z()) continue;
+
+            // 构建射线
+            gp_Lin ray(gp_Pnt(Pmin.X() - d, y, z), gp::DX());
+
+            // 执行求交
+            intersector.Perform(ray, 0, D.X() + 3.0 * d);
+
+            if (intersector.NbPnt() == 0) continue;
+
+            // 收集交点
+            std::vector<double> intersectionParams;
+            intersectionParams.reserve(intersector.NbPnt());
+            for (int p = 1; p <= intersector.NbPnt(); ++p) {
+                intersectionParams.push_back(intersector.WParameter(p));
+            }
+            std::sort(intersectionParams.begin(), intersectionParams.end());
+
+            // 奇偶规则填充
+            for (size_t idx = 0; idx + 1 < intersectionParams.size(); idx += 2) {
+                double enterDist = intersectionParams[idx];
+                double exitDist = intersectionParams[idx + 1];
+
+                int i_start = static_cast<int>(ceil((enterDist / d) - 1.0));
+                int i_end = static_cast<int>(floor((exitDist / d) - 1.0));
+
+                if (i_start < 0) i_start = 0;
+                if (i_end > nx) i_end = nx;
+
+                for (int i = i_start; i <= i_end; ++i) {
+                    // 存入结果向量
+                    innerPoints.emplace_back(
+                        Pmin.X() + i * d,
+                        y,
+                        z
+                    );
                 }
             }
-        }
-
-        // 合并结果到主 vector (临界区)
-#pragma omp critical
-        {
-            innerPoints.insert(innerPoints.end(), threadPoints.begin(), threadPoints.end());
         }
     }
 
     return innerPoints;
 }
+
+
+
+//std::vector<gp_XYZ> GetPointsInsideSolid(
+//    const TopoDS_Shape& solidShape,
+//    const int density = 20) 
+//{
+//    std::vector<gp_XYZ> innerPoints;
+//    if (solidShape.IsNull() || density <= 0) return innerPoints;
+//
+//    Bnd_Box aabb;
+//    BRepBndLib::Add(solidShape, aabb, true);
+//    if (aabb.IsVoid()) return innerPoints;
+//
+//    gp_XYZ Pmin = aabb.CornerMin().XYZ();
+//    gp_XYZ Pmax = aabb.CornerMax().XYZ();
+//    gp_XYZ D = Pmax - Pmin;
+//
+//    // 防止极小包围盒导致除零
+//    if (D.X() < Precision::Confusion()) D.SetX(1.0);
+//    if (D.Y() < Precision::Confusion()) D.SetY(1.0);
+//    if (D.Z() < Precision::Confusion()) D.SetZ(1.0);
+//
+//    // 步长计算逻辑优化建议：防止某一维过细导致点数爆炸
+//    // 这里保持你的逻辑，但建议生产环境增加步长下限
+//    double dims[3] = { D.X(), D.Y(), D.Z() };
+//    const double mind = Min(dims[0], Min(dims[1], dims[2]));
+//    const double d = mind / density;
+//
+//    if (d < Precision::Confusion()) return innerPoints;
+//
+//    const int nslice[3] = {
+//            static_cast<int>(ceil(dims[0] / d)),
+//            static_cast<int>(ceil(dims[1] / d)),
+//            static_cast<int>(ceil(dims[2] / d)) };
+//
+//    // 预估总点数用于 reserve，减少 vector 扩容开销
+//    long long estimatedCount = (long long)nslice[0] * nslice[1] * nslice[2];
+//    // 安全检查：如果点数过大（如超过100万），可能需要报警或截断
+//    if (estimatedCount > 1000000) {
+//        qWarning() << "Estimated points too high:" << estimatedCount;
+//        // 可以在此强制调整 d
+//    }
+//
+//    // 线程安全的容器 (OpenMP 下向 vector push_back 不安全)
+//    // 这里简单处理：每个线程私有 vector，最后合并
+//
+//#pragma omp parallel
+//    {
+//        // 每个线程必须拥有独立的 Classifier，因为它是非线程安全的且包含状态
+//        BRepClass3d_SolidClassifier classifier(solidShape);
+//        std::vector<gp_XYZ> threadPoints;
+//
+//#pragma omp for collapse(3) schedule(dynamic)
+//        for (int i = 0; i <= nslice[0]; ++i) {
+//            for (int j = 0; j <= nslice[1]; ++j) {
+//                for (int k = 0; k <= nslice[2]; ++k) {
+//                    gp_XYZ currentPoint = Pmin + gp_XYZ(d * i, d * j, d * k);
+//                    // 快速包围盒预检查（虽然外层循环基于包围盒，但这是为了后续可能的扩展）
+//                    if (currentPoint.X() > Pmax.X() || currentPoint.Y() > Pmax.Y() || currentPoint.Z() > Pmax.Z())
+//                        continue;
+//                    classifier.Perform(currentPoint, Precision::Confusion());
+//
+//                    if (classifier.State() == TopAbs_IN) {
+//                        threadPoints.push_back(currentPoint);
+//                    }
+//                }
+//            }
+//        }
+//
+//        // 合并结果到主 vector (临界区)
+//#pragma omp critical
+//        {
+//            innerPoints.insert(innerPoints.end(), threadPoints.begin(), threadPoints.end());
+//        }
+//    }
+//
+//    return innerPoints;
+//}
 
 // 可视化选中实体的内部采样点
 void DrawWidget::onVisualizeInternalPoints() {
@@ -1579,7 +1650,7 @@ void DrawWidget::onVisualizeInternalPoints() {
     gp_Trsf shapeTrsf = selectedAisShape->Transformation();
     BRepBuilderAPI_Transform transform(rawShape, shapeTrsf, Standard_True);
     TopoDS_Shape shapeInWorld = transform.Shape();
-    shapeInWorld.Location(TopLoc_Location());
+    shapeInWorld.Location(TopLoc_Location());  // 清除位置属性，防止双重变换
 
     // 计算点
     const int density = 30;
@@ -1593,217 +1664,36 @@ void DrawWidget::onVisualizeInternalPoints() {
 
     qDebug() << "Generated" << innerPoints.size() << "internal points.";
 
-    // --- 优化开始：使用 AIS_PointCloud ---
-
-    // 1. 创建图形数据数组
+    // 创建图形数据数组  innerPoints: 这是之前算法算出来的 std::vector<gp_XYZ>，它只是普通的 C++ 内存数组，显卡（GPU）无法直接读取。
+    // Graphic3d_ArrayOfPoints 本质上是VBO
     Handle(Graphic3d_ArrayOfPoints) aPoints = new Graphic3d_ArrayOfPoints(static_cast<Standard_Integer>(innerPoints.size()));
 
     for (const gp_XYZ& pt : innerPoints) {
         aPoints->AddVertex(pt);
     }
 
-    // 2. 创建点云对象
+    // 创建点云对象
     Handle(AIS_PointCloud) aisPointCloud = new AIS_PointCloud();
     aisPointCloud->SetPoints(aPoints);
-
-    // 3. 设置样式 (可选)
-    // 注意：AIS_PointCloud 的样式设置与 AIS_Shape 不同
+    
+    // AIS_PointCloud 的样式设置与 AIS_Shape 不同
     Handle(Prs3d_Drawer) drawer = aisPointCloud->Attributes();
-    drawer->SetPointAspect(new Prs3d_PointAspect(Aspect_TOM_POINT, Quantity_NOC_YELLOW, 1.0));
-    // 注意：对于 PointCloud，通常用 Aspect_TOM_POINT 渲染速度最快，2.0 的大小可能需要 OpenGL 支持
+    drawer->SetPointAspect(new Prs3d_PointAspect(Aspect_TOM_POINT, Quantity_NOC_BLACK, 5.0));
 
-    // 4. 显示
+    // 显示
     m_context->Display(aisPointCloud, Standard_True);
 }
 
-// 辅助函数：构建3D曲线
-const TopoDS_Shape &Build3dCurves(const TopoDS_Shape &shape) {
-    for (TopExp_Explorer it(shape, TopAbs_EDGE); it.More(); it.Next())
-        BRepLib::BuildCurve3d(TopoDS::Edge(it.Current()));
 
-    return shape;
-}
-
-// 辅助函数：执行精确隐藏线消除 (HLR) 算法计算
-TopoDS_Shape HLR(const TopoDS_Shape &shape,
-                 const gp_Dir &direction,
-                 const t_hlrEdges visibility) {
-    Handle(HLRBRep_Algo) brep_hlr = new HLRBRep_Algo;
-    brep_hlr->Add(shape);
-
-    gp_Ax2 transform(gp::Origin(), direction);
-    HLRAlgo_Projector projector(transform);
-    brep_hlr->Projector(projector);
-    brep_hlr->Update();
-    brep_hlr->Hide();
-
-    HLRBRep_HLRToShape shapes(brep_hlr);
-
-    TopoDS_Shape V = Build3dCurves(shapes.VCompound());
-    TopoDS_Shape V1 = Build3dCurves(shapes.Rg1LineVCompound());
-    TopoDS_Shape VN = Build3dCurves(shapes.RgNLineVCompound());
-    TopoDS_Shape VO = Build3dCurves(shapes.OutLineVCompound());
-    TopoDS_Shape VI = Build3dCurves(shapes.IsoLineVCompound());
-    TopoDS_Shape H = Build3dCurves(shapes.HCompound());
-    TopoDS_Shape H1 = Build3dCurves(shapes.Rg1LineHCompound());
-    TopoDS_Shape HN = Build3dCurves(shapes.RgNLineHCompound());
-    TopoDS_Shape HO = Build3dCurves(shapes.OutLineHCompound());
-    TopoDS_Shape HI = Build3dCurves(shapes.IsoLineHCompound());
-
-    TopoDS_Compound C;
-    BRep_Builder().MakeCompound(C);
-    if (!V.IsNull() && visibility.OutputVisibleSharpEdges)
-        BRep_Builder().Add(C, V);
-    if (!V1.IsNull() && visibility.OutputVisibleSmoothEdges)
-        BRep_Builder().Add(C, V1);
-    if (!VN.IsNull() && visibility.OutputVisibleOutlineEdges)
-        BRep_Builder().Add(C, VN);
-    if (!VO.IsNull() && visibility.OutputVisibleSewnEdges)
-        BRep_Builder().Add(C, VO);
-    if (!VI.IsNull() && visibility.OutputVisibleIsoLines)
-        BRep_Builder().Add(C, VI);
-    if (!H.IsNull() && visibility.OutputHiddenSharpEdges)
-        BRep_Builder().Add(C, H);
-    if (!H1.IsNull() && visibility.OutputHiddenSmoothEdges)
-        BRep_Builder().Add(C, H1);
-    if (!HN.IsNull() && visibility.OutputHiddenOutlineEdges)
-        BRep_Builder().Add(C, HN);
-    if (!HO.IsNull() && visibility.OutputHiddenSewnEdges)
-        BRep_Builder().Add(C, HO);
-
-    if (!HI.IsNull() && visibility.OutputHiddenIsoLines)
-        BRep_Builder().Add(C, HI);
-
-    gp_Trsf T;
-    T.SetTransformation(gp_Ax3(transform));
-    T.Invert();
-
-    return C.Moved(T);
-}
-
-// 辅助函数：执行离散（网格化）隐藏线消除 (DHLR) 算法计算
-TopoDS_Shape DHLR(const TopoDS_Shape &shape,
-                  const gp_Dir &direction,
-                  const t_hlrEdges visibility) {
-    gp_Ax2 transform(gp::Origin(), direction);
-
-    HLRAlgo_Projector projector(transform);
-
-    Handle(HLRBRep_PolyAlgo) polyAlgo = new HLRBRep_PolyAlgo;
-    polyAlgo->Projector(projector);
-    polyAlgo->Load(shape);
-    polyAlgo->Update();
-
-    HLRBRep_PolyHLRToShape HLRToShape;
-    HLRToShape.Update(polyAlgo);
-
-    TopoDS_Compound C;
-    BRep_Builder().MakeCompound(C);
-
-    TopoDS_Shape vcompound = HLRToShape.VCompound();
-    if (!vcompound.IsNull())
-        BRep_Builder().Add(C, vcompound);
-    vcompound = HLRToShape.OutLineVCompound();
-    if (!vcompound.IsNull())
-        BRep_Builder().Add(C, vcompound);
-
-    gp_Trsf T;
-    T.SetTransformation(gp_Ax3(transform));
-    T.Invert();
-
-    return C.Moved(T);
-}
-
-
-// 运行精确HLR算法并显示结果
-void DrawWidget::onRunPreciseHLR() {
-    if (m_context->NbSelected() != 1) {
-        qWarning("请选择一个形状以运行 HLR。");
-        return;
-    }
-    m_context->InitSelected();
-    Handle(AIS_InteractiveObject) selectedAIS = m_context->SelectedInteractive();
-
-    Handle(AIS_Shape) selectedAisShape = Handle(AIS_Shape)::DownCast(selectedAIS);
-    if (selectedAisShape.IsNull()) {
-        qWarning("选中的对象不是一个形状。");
-        return;
-    }
-
-    TopoDS_Shape shape = selectedAisShape->Shape();
-    gp_Trsf shapeTrsf = selectedAisShape->Transformation();
-    BRepBuilderAPI_Transform transform(shape, shapeTrsf, Standard_True);
-    shape = transform.Shape();
-    shape.Location(TopLoc_Location());
-
-    qDebug() << "开始【精确 HLR】计算 (UI 将冻结)...";
-
-    t_hlrEdges style;
-    TopoDS_Shape phlr = HLR(shape, gp::DX(), style);
-
-    if (!phlr.IsNull()) {
-        Handle(AIS_Shape) aisHLR = new AIS_Shape(phlr);
-        aisHLR->SetColor(Quantity_NOC_BLUE);
-        m_context->Display(aisHLR, Standard_True);
-    } else {
-        qWarning("精确 HLR (HLR) 未返回结果。");
-    }
-}
-
-// 运行离散HLR算法并显示结果
-void DrawWidget::onRunDiscreteHLR() {
-    if (m_context->NbSelected() != 1) {
-        qWarning("请选择一个形状以运行 HLR。");
-        return;
-    }
-    m_context->InitSelected();
-    Handle(AIS_InteractiveObject) selectedAIS = m_context->SelectedInteractive();
-    Handle(AIS_Shape) selectedAisShape = Handle(AIS_Shape)::DownCast(selectedAIS);
-    if (selectedAisShape.IsNull()) {
-        qWarning("选中的对象不是一个形状。");
-        return;
-    }
-
-    TopoDS_Shape shape = selectedAisShape->Shape();
-    gp_Trsf shapeTrsf = selectedAisShape->Transformation();
-    BRepBuilderAPI_Transform transform(shape, shapeTrsf, Standard_True);
-    shape = transform.Shape();
-    shape.Location(TopLoc_Location());
-
-    qDebug() << "开始【离散 HLR】计算 (UI 将短暂冻结)...";
-
-    BRepMesh_IncrementalMesh meshGen(shape, 1.0);
-
-    t_hlrEdges style;
-    TopoDS_Shape dhlr = DHLR(shape, gp::DX(), style);
-
-    if (!dhlr.IsNull()) {
-        Bnd_Box aabb;
-        BRepBndLib::Add(shape, aabb);
-        double xDim = 100.0;
-        if (!aabb.IsVoid()) {
-            double xRange = aabb.CornerMax().X() - aabb.CornerMin().X();
-            if (xRange > 1.0) xDim = xRange;
-        }
-        gp_Trsf T;
-        T.SetTranslation(gp_Vec(xDim * 1.1, 0, 0));
-
-        Handle(AIS_Shape) aisDHLR = new AIS_Shape(dhlr.Moved(T));
-        aisDHLR->SetColor(Quantity_NOC_RED);
-        m_context->Display(aisDHLR, Standard_True);
-    } else {
-        qWarning("离散 HLR (DHLR) 未返回结果。");
-    }
-}
 
 void DrawWidget::onMakeCompound() {
-    // 1. 检查选中数量
+    // 检查选中数量
     if (m_context->NbSelected() < 2) {
         qWarning() << "MakeCompound: Please select at least 2 objects.";
         return;
     }
 
-    // 2. 收集选中物体
+    // 收集选中物体
     std::vector<Shape> shapesToCompound;
     AIS_ListOfInteractive selectedList; // 用于后续删除
     m_context->InitSelected();
@@ -1814,9 +1704,8 @@ void DrawWidget::onMakeCompound() {
 
         Handle(AIS_Shape) aisShape = Handle(AIS_Shape)::DownCast(obj);
         if (!aisShape.IsNull()) {
-            // 【关键】获取变换后的几何体
-            // 如果物体被移动或旋转过，直接取 aisShape->Shape() 得到的是原始位置的几何
-            // 必须结合 Transformation() 进行变换
+        
+
             TopoDS_Shape rawShape = aisShape->Shape();
             gp_Trsf trsf = aisShape->Transformation();
 
@@ -1841,8 +1730,6 @@ void DrawWidget::onMakeCompound() {
     if (shapesToCompound.empty()) return;
 
     try {
-        // 3. 调用几何算法生成 Compound
-        // 假设 m_make_shapes 继承自 Shape，可以直接调用 make_compound
         Shape compoundResult = m_make_shapes.make_compound(shapesToCompound);
 
         if (compoundResult.s_.IsNull()) {
@@ -1850,12 +1737,9 @@ void DrawWidget::onMakeCompound() {
             return;
         }
 
-        // 4. 移除旧物体
         for (AIS_ListOfInteractive::Iterator it(selectedList); it.More(); it.Next()) {
             m_context->Remove(it.Value(), Standard_False);
         }
-
-        // 5. 显示新物体
         Handle(AIS_Shape) newAis = new AIS_Shape(compoundResult.s_);
 
         // 设置颜色 (使用默认或第一个物体的颜色)
